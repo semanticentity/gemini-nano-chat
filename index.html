@@ -59,16 +59,21 @@
       }, 1000);
       statusEl.textContent = 'Loading model...';
 
-      // Chrome rejects other sampling settings when it uses speculative
-      // decoding (MTP), so this option is required, not just a preference.
-      loading = LanguageModel.create({
-        samplingMode: 'most-predictable',
-        monitor(m) {
-          m.addEventListener('downloadprogress', (e) => {
-            statusEl.textContent = `Downloading model: ${Math.round(e.loaded * 100)}%`;
-          });
-        },
-      }).then((s) => {
+      const monitor = (m) => {
+        m.addEventListener('downloadprogress', (e) => {
+          statusEl.textContent = `Downloading model: ${Math.round(e.loaded * 100)}%`;
+        });
+      };
+
+      // Chrome with speculative decoding (MTP) requires 'most-predictable'.
+      // Other Chromes may not accept samplingMode at all, so if the first
+      // attempt is rejected, retry with plain defaults.
+      loading = LanguageModel.create({ samplingMode: 'most-predictable', monitor })
+        .catch((err) => {
+          console.warn('[nano] create with samplingMode failed, retrying without it:', err);
+          return LanguageModel.create({ monitor });
+        })
+        .then((s) => {
         session = s;
         statusEl.textContent = `Ready. Loaded in ${Math.round((Date.now() - start) / 1000)}s.`;
         return s;
