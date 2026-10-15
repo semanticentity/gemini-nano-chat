@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Local Gemini Nano Chat</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; background: #f9f9f9; }
+    h2 { margin-bottom: 4px; }
+    #status { font-size: 14px; color: #555; margin-bottom: 12px; }
+    #chat-box { height: 400px; overflow-y: auto; background: white; border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 10px; }
+    .message { padding: 10px 15px; border-radius: 15px; max-width: 80%; line-height: 1.4; white-space: pre-wrap; }
+    .user { background: #007bff; color: white; align-self: flex-end; border-bottom-right-radius: 2px; }
+    .ai { background: #e9ecef; color: black; align-self: flex-start; border-bottom-left-radius: 2px; }
+    .input-area { display: flex; gap: 10px; }
+    input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 20px; outline: none; font-size: 16px; }
+    button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 20px; cursor: pointer; font-size: 16px; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+
+  <h2>Local Gemini Nano Chat</h2>
+  <div id="status">Model not loaded. It loads on your first message.</div>
+  <div id="chat-box"></div>
+
+  <div class="input-area">
+    <input type="text" id="prompt-input" placeholder="Ask something..." autocomplete="off" autofocus>
+    <button id="send-btn" type="button">Send</button>
+  </div>
+
+  <script>
+    const chatBox = document.getElementById('chat-box');
+    const input = document.getElementById('prompt-input');
+    const btn = document.getElementById('send-btn');
+    const statusEl = document.getElementById('status');
+    let session = null;
+    let loading = null;
+    let busy = false;
+
+    function addMessage(text, sender) {
+      const div = document.createElement('div');
+      div.className = `message ${sender}`;
+      div.textContent = text;
+      chatBox.appendChild(div);
+      chatBox.scrollTop = chatBox.scrollHeight;
+      return div;
+    }
+
+    // Plain create(), same as the console version that works.
+    // Chrome needs a user click for this, so it runs from the Send handler.
+    function getSession() {
+      if (session) return Promise.resolve(session);
+      if (loading) return loading;
+
+      const start = Date.now();
+      const tick = setInterval(() => {
+        statusEl.textContent = `Loading model... ${Math.round((Date.now() - start) / 1000)}s`;
+      }, 1000);
+      statusEl.textContent = 'Loading model...';
+
+      loading = LanguageModel.create({
+        monitor(m) {
+          m.addEventListener('downloadprogress', (e) => {
+            statusEl.textContent = `Downloading model: ${Math.round(e.loaded * 100)}%`;
+          });
+        },
+      }).then((s) => {
+        session = s;
+        statusEl.textContent = `Ready. Loaded in ${Math.round((Date.now() - start) / 1000)}s.`;
+        return s;
+      }).finally(() => {
+        clearInterval(tick);
+        loading = null;
+      });
+      return loading;
+    }
+
+    async function handleSend() {
+      if (busy) return;
+      const text = input.value.trim();
+      if (!text) return;
+
+      if (!window.LanguageModel) {
+        addMessage('Error: LanguageModel API not found. Use desktop Chrome 148+.', 'ai');
+        return;
+      }
+
+      // Start loading first, while the click still counts as a user gesture.
+      const sessionReady = getSession();
+
+      busy = true;
+      btn.disabled = true;
+      addMessage(text, 'user');
+      input.value = '';
+      const aiBubble = addMessage('Thinking...', 'ai');
+
+      try {
+        const s = await sessionReady;
+        const reply = await s.prompt(text);
+        aiBubble.textContent = reply || '(no response)';
+      } catch (err) {
+        console.error(err);
+        aiBubble.textContent = `Error: ${err.name}: ${err.message}`;
+        if (!session) statusEl.textContent = 'Model failed to load. Send again to retry.';
+      } finally {
+        busy = false;
+        btn.disabled = false;
+        chatBox.scrollTop = chatBox.scrollHeight;
+        input.focus();
+      }
+    }
+
+    btn.addEventListener('click', handleSend);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.isComposing) {
+        e.preventDefault();
+        handleSend();
+      }
+    });
+  </script>
+</body>
+</html>
