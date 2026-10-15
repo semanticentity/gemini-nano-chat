@@ -59,7 +59,10 @@
       }, 1000);
       statusEl.textContent = 'Loading model...';
 
+      // Chrome rejects other sampling settings when it uses speculative
+      // decoding (MTP), so this option is required, not just a preference.
       loading = LanguageModel.create({
+        samplingMode: 'most-predictable',
         monitor(m) {
           m.addEventListener('downloadprogress', (e) => {
             statusEl.textContent = `Downloading model: ${Math.round(e.loaded * 100)}%`;
