@@ -4,6 +4,15 @@ A tiny chat page that talks to Gemini Nano, the model built into Chrome. Everyth
 
 **Live demo:** https://semanticentity.github.io/gemini-nano-chat/
 
+## Features
+
+- Markdown replies, sanitized with DOMPurify. Code blocks get a copy button.
+- No images or embeds in replies, so the page never contacts outside servers on its own.
+- Multiline input: Enter sends, Shift+Enter adds a line.
+- Stop button, New chat button, and a context meter.
+- Light and dark mode, works at phone width.
+- Falls back to plain text if the Markdown libraries can't load.
+
 ## Requirements
 
 - Desktop Chrome 148 or later (Windows, macOS 13+, Linux, or ChromeOS on Chromebook Plus)
