@@ -184,6 +184,37 @@
       color: var(--text);
     }
     .hint { font-size: 12px; color: var(--muted); text-align: center; }
+
+    /* Onboarding card */
+    .card {
+      align-self: stretch;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--accent);
+      border-radius: 10px;
+      padding: 14px 16px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .card.warn { border-left-color: var(--error); }
+    .card h3 { margin: 0 0 6px; font-size: 15px; }
+    .card p { margin: 0 0 8px; }
+    .card ol { margin: 0 0 8px; padding-left: 1.3em; }
+    .card li { margin: 8px 0; }
+    .card .chip { display: flex; align-items: center; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+    .card .chip code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12.5px;
+      background: var(--code-bg);
+      padding: 3px 6px;
+      border-radius: 4px;
+      overflow-wrap: anywhere;
+    }
+    .card .chip button { padding: 2px 10px; font-size: 12px; }
+    .card .small { font-size: 12.5px; color: var(--muted); }
+    .card .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .card .actions .primary { font-size: 14px; padding: 7px 16px; }
+    .card button:disabled { opacity: 0.6; cursor: default; }
   </style>
 </head>
 <body>
@@ -340,6 +371,7 @@
         })
         .then((s) => {
           session = s;
+          clearOnboarding();
           s.addEventListener?.('contextoverflow', () => {
             addMessage('note', 'This chat is long, so the oldest messages are being dropped from the model\'s memory. Start a new chat for a clean slate.');
           });
@@ -414,11 +446,17 @@
 
     function newChat() {
       if (controller) controller.abort();
+      const wasLoaded = !!session;
       if (session) { session.destroy(); session = null; }
       chat.querySelectorAll('.msg').forEach((m) => m.remove());
-      empty.hidden = false;
-      setStatus('New chat. The model reloads on your next message (usually a few seconds).');
+      empty.hidden = !!onboardCard;
       promptEl.focus();
+      if (wasLoaded) {
+        // The model is on disk, so reload it right away without a click.
+        getSession().catch(() => setStatus('The model failed to load. Send a message to retry.', true));
+      } else {
+        setStatus('New chat.');
+      }
     }
 
     // ---------- Input ----------
@@ -438,10 +476,280 @@
     sendBtn.addEventListener('click', handleSend);
     newChatBtn.addEventListener('click', newChat);
 
-    // Tell people up front if this browser can't run it.
-    if (!('LanguageModel' in window)) {
-      setStatus('This browser does not support Chrome\'s built-in AI. Use desktop Chrome 148 or later.', true);
+    // ---------- Onboarding ----------
+    // A web page can't read chrome://flags. So this checks the symptoms
+    // (missing API, model state, Chrome not answering) and shows the fix.
+
+    const URLS = {
+      promptFlag: 'chrome://flags/#prompt-api-for-gemini-nano',
+      modelFlag: 'chrome://flags/#optimization-guide-on-device-model',
+      internals: 'chrome://on-device-internals',
+      update: 'chrome://settings/help',
+    };
+    const MIN_CHROME = 148;
+    let onboardCard = null;
+
+    function detectBrowser() {
+      const uad = navigator.userAgentData;
+      const ua = navigator.userAgent;
+      let chrome = null;
+      if (uad && Array.isArray(uad.brands)) {
+        const g = uad.brands.find((b) => b.brand === 'Google Chrome');
+        if (g) chrome = parseInt(g.version, 10);
+      } else {
+        const m = ua.match(/Chrome\/(\d+)/);
+        if (m && !/Edg\/|OPR\//.test(ua)) chrome = parseInt(m[1], 10);
+      }
+      const mobile = uad ? !!uad.mobile : /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+      let framed = false;
+      try { framed = window.self !== window.top; } catch { framed = true; }
+      return { chrome, mobile, framed };
     }
+
+    function clearOnboarding() {
+      if (onboardCard) { onboardCard.remove(); onboardCard = null; }
+    }
+
+    // chrome:// links can't be opened from a web page, so show a copy chip.
+    function urlChip(url) {
+      const wrap = document.createElement('span');
+      wrap.className = 'chip';
+      const code = document.createElement('code');
+      code.textContent = url;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'secondary';
+      btn.textContent = 'Copy';
+      btn.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(url);
+          btn.textContent = 'Copied';
+        } catch {
+          btn.textContent = 'Copy failed, select it';
+        }
+        setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+      });
+      wrap.append(code, btn);
+      return wrap;
+    }
+
+    function showCard({ state, title, intro, steps = [], note, actions = [], warn = false }) {
+      clearOnboarding();
+      const card = document.createElement('section');
+      card.className = `card${warn ? ' warn' : ''}`;
+      card.dataset.state = state;
+
+      const h = document.createElement('h3');
+      h.textContent = title;
+      card.appendChild(h);
+
+      if (intro) {
+        const p = document.createElement('p');
+        p.textContent = intro;
+        card.appendChild(p);
+      }
+
+      if (steps.length) {
+        const ol = document.createElement('ol');
+        steps.forEach(({ text, url }) => {
+          const li = document.createElement('li');
+          li.textContent = text;
+          if (url) li.appendChild(urlChip(url));
+          ol.appendChild(li);
+        });
+        card.appendChild(ol);
+        if (steps.some((s) => s.url)) {
+          const p = document.createElement('p');
+          p.className = 'small';
+          p.textContent = 'Chrome blocks links to its own settings pages. Copy each address and paste it into the address bar.';
+          card.appendChild(p);
+        }
+      }
+
+      if (note) {
+        const p = document.createElement('p');
+        p.className = 'small';
+        p.textContent = note;
+        card.appendChild(p);
+      }
+
+      if (actions.length) {
+        const row = document.createElement('div');
+        row.className = 'actions';
+        actions.forEach(({ label, primary, onClick }) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = primary ? 'primary' : 'secondary';
+          b.textContent = label;
+          b.addEventListener('click', () => onClick(b));
+          row.appendChild(b);
+        });
+        card.appendChild(row);
+      }
+
+      chat.prepend(card);
+      empty.hidden = true;
+      onboardCard = card;
+      return card;
+    }
+
+    function timeout(promise, ms) {
+      return Promise.race([promise, new Promise((r) => setTimeout(() => r('timeout'), ms))]);
+    }
+
+    // Ask with and without samplingMode, since some Chromes require it and
+    // others reject it. Keep the most hopeful answer.
+    async function checkAvailability() {
+      const rank = { available: 4, downloading: 3, downloadable: 2, unavailable: 1, timeout: 0 };
+      const results = await Promise.all(
+        [{ samplingMode: 'most-predictable' }, {}].map((opts) =>
+          timeout(Promise.resolve().then(() => LanguageModel.availability(opts)), 8000)
+            .catch((err) => { console.warn('[nano] availability failed:', err); return null; })
+        )
+      );
+      console.log('[nano] availability:', results);
+      const known = results.filter((r) => typeof r === 'string' && r in rank);
+      if (!known.length) return 'error';
+      return known.sort((a, b) => rank[b] - rank[a])[0];
+    }
+
+    function startDownload(btn) {
+      btn.disabled = true;
+      btn.textContent = 'Starting...';
+      getSession()
+        .then(() => addMessage('note', 'Gemini Nano is ready. Ask anything.'))
+        .catch((err) => {
+          console.error('[nano]', err);
+          btn.disabled = false;
+          btn.textContent = 'Try again';
+          setStatus(`Download failed: ${err.name}: ${err.message}`, true);
+        });
+    }
+
+    function showMissingApiCard(env) {
+      if (env.mobile) {
+        return showCard({
+          state: 'mobile', warn: true,
+          title: 'Phones are not supported yet',
+          intro: 'Gemini Nano runs in Chrome on Windows, Mac, Linux, and Chromebook Plus. Open this page on a computer.',
+        });
+      }
+      if (!env.chrome) {
+        return showCard({
+          state: 'not-chrome', warn: true,
+          title: 'This needs Google Chrome',
+          intro: `Gemini Nano is built into desktop Google Chrome. Open this page in Chrome ${MIN_CHROME} or later.`,
+        });
+      }
+      if (env.chrome < MIN_CHROME) {
+        return showCard({
+          state: 'old-chrome',
+          title: 'Update Chrome to use this',
+          intro: `You have Chrome ${env.chrome}. Built-in AI is on by default from Chrome ${MIN_CHROME}.`,
+          steps: [
+            { text: 'Update Chrome here, then relaunch it:', url: URLS.update },
+            { text: 'Or, without updating, set this flag to Enabled:', url: URLS.promptFlag },
+            { text: 'And set this one to Enabled too, then relaunch Chrome:', url: URLS.modelFlag },
+          ],
+        });
+      }
+      return showCard({
+        state: 'api-off',
+        title: 'Built-in AI is turned off in this Chrome',
+        intro: 'Your Chrome is new enough, but the feature is switched off.',
+        steps: [
+          { text: 'Set this flag to Enabled:', url: URLS.promptFlag },
+          { text: 'Set this flag to Enabled:', url: URLS.modelFlag },
+          { text: 'Relaunch Chrome, then reload this page.' },
+        ],
+        note: 'If a work or school account manages this Chrome, an admin may have turned it off.',
+      });
+    }
+
+    async function runOnboarding() {
+      clearOnboarding();
+      const env = detectBrowser();
+
+      if (env.framed) {
+        setStatus('Open this page in its own tab.', true);
+        showCard({
+          state: 'framed', warn: true,
+          title: 'Open this page in its own tab',
+          intro: 'Chrome blocks built-in AI inside embedded previews.',
+          actions: [{ label: 'Open in new tab', primary: true, onClick: () => window.open(location.href, '_blank', 'noopener') }],
+        });
+        return;
+      }
+
+      if (!('LanguageModel' in window)) {
+        setStatus('Built-in AI is not available in this browser.', true);
+        showMissingApiCard(env);
+        return;
+      }
+
+      setStatus('Checking whether Gemini Nano is ready...');
+      const state = await checkAvailability();
+
+      if (state === 'available') {
+        // Already on disk: load it now so the first reply is fast.
+        getSession().catch((err) => {
+          console.error('[nano]', err);
+          setStatus('The model failed to load.', true);
+          showCard({
+            state: 'load-failed', warn: true,
+            title: 'The model did not load',
+            intro: `${err.name}: ${err.message}`,
+            steps: [{ text: 'Check the Model Status tab here:', url: URLS.internals }],
+            actions: [{ label: 'Try again', primary: true, onClick: () => runOnboarding() }],
+          });
+        });
+      } else if (state === 'downloadable') {
+        setStatus('One-time setup needed.');
+        showCard({
+          state,
+          title: 'One-time setup: download Gemini Nano',
+          intro: 'The model downloads once, then runs offline on this device. It is a few GB, so use Wi-Fi or another unmetered connection. Chrome needs about 22 GB of free disk space.',
+          actions: [{ label: 'Download now', primary: true, onClick: startDownload }],
+          note: 'Or just send a message. The download starts then.',
+        });
+      } else if (state === 'downloading') {
+        setStatus('Gemini Nano is downloading.');
+        showCard({
+          state,
+          title: 'Gemini Nano is downloading',
+          intro: 'Chrome is already fetching the model in the background.',
+          actions: [{ label: 'Show progress', primary: true, onClick: startDownload }],
+        });
+      } else if (state === 'unavailable') {
+        setStatus('This device cannot run Gemini Nano.', true);
+        showCard({
+          state, warn: true,
+          title: 'This device can\'t run Gemini Nano',
+          intro: 'Chrome needs a GPU with more than 4 GB of memory, or 16 GB of RAM and 4 CPU cores. It also needs 22 GB of free disk space.',
+          steps: [
+            { text: 'See exactly what Chrome reports:', url: URLS.internals },
+            { text: 'To try anyway, set this flag to "Enabled BypassPerfRequirement" if that option is listed, then relaunch Chrome:', url: URLS.modelFlag },
+          ],
+        });
+      } else {
+        const failed = state === 'error';
+        setStatus(failed ? 'Chrome could not check the model.' : 'Chrome has not answered yet.', failed);
+        showCard({
+          state: failed ? 'check-failed' : 'stalled',
+          title: failed ? 'Chrome could not check the model' : 'Chrome is slow to answer',
+          intro: failed
+            ? 'Chrome returned an error when asked about the model. The console has details.'
+            : 'Chrome has not said whether the model is ready. It may still be setting up in the background.',
+          steps: [
+            { text: 'Send a message to try anyway.' },
+            { text: 'Or check the Model Status tab here:', url: URLS.internals },
+          ],
+          actions: [{ label: 'Check again', primary: true, onClick: () => runOnboarding() }],
+        });
+      }
+    }
+
+    runOnboarding();
   </script>
 </body>
 </html>

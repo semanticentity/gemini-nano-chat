@@ -6,6 +6,7 @@ A tiny chat page that talks to Gemini Nano, the model built into Chrome. Everyth
 
 ## Features
 
+- Onboarding on load. The page checks what's missing and shows the fix: update Chrome, turn on flags, download the model, or open in its own tab. If the model is already on disk, it loads in the background so the first reply is fast.
 - Markdown replies, sanitized with DOMPurify. Code blocks get a copy button.
 - No images or embeds in replies, so the page never contacts outside servers on its own.
 - Multiline input: Enter sends, Shift+Enter adds a line.
