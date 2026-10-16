@@ -1,6 +1,6 @@
 # Gemini Nano Chat
 
-A tiny chat page that talks to Gemini Nano, the model built into Chrome. Everything runs on your device. No API key, no server.
+A tiny chat page that talks to the AI model built into your browser: Gemini Nano in Chrome, or Edge's built-in model. Everything runs on your device. No API key, no server.
 
 **Live demo:** https://semanticentity.github.io/gemini-nano-chat/
 
@@ -19,6 +19,14 @@ A tiny chat page that talks to Gemini Nano, the model built into Chrome. Everyth
 - Stop button, New chat button, and a context meter.
 - Light and dark mode, works at phone width.
 - Falls back to plain text if the Markdown libraries can't load.
+
+## Browser support
+
+The page checks for the Prompt API first, and uses it in any browser that has it. The browser only decides the wording, how the model describes itself, and which settings pages the setup cards point to.
+
+- **Chrome 148+ on desktop:** on by default. Older Chrome gets update and flag steps.
+- **Edge Canary or Dev 138+:** works after turning on the "Prompt API for on-device language model" flag. The page shows that step.
+- **Other browsers and phones:** the page says what's missing and where to go instead.
 
 ## Requirements
 

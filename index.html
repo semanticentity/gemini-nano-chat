@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Chat with Gemini Nano, the model built into Chrome. Runs fully on your device.">
+  <meta name="description" content="Chat with the AI model built into your browser: Gemini Nano in Chrome, or Edge's built-in model. Runs fully on your device.">
   <title>Local Gemini Nano Chat</title>
 
   <!-- Markdown rendering and HTML sanitizing. Pinned versions with integrity
@@ -369,7 +369,7 @@
 
     <main id="chat" aria-live="polite">
       <div class="empty" id="empty">
-        <div>Ask anything. Replies come from Gemini Nano running inside Chrome, so nothing leaves your machine. Your chat is saved in this browser until you start a new one.</div>
+        <div>Ask anything. Replies come from the AI model built into your browser, so nothing leaves your machine. Your chat is saved in this browser until you start a new one.</div>
         <div id="empty-mode"></div>
       </div>
     </main>
@@ -435,17 +435,17 @@
       <div id="schema-wrap" class="stack" hidden>
         <label for="schema">JSON schema</label>
         <textarea id="schema" rows="9" spellcheck="false"></textarea>
-        <p class="field-hint">Chrome forces every reply to match this schema.</p>
+        <p class="field-hint">The browser forces every reply to match this schema.</p>
         <p id="schema-error" class="field-error" role="alert" hidden></p>
       </div>
 
       <label for="sampling">Creativity</label>
       <select id="sampling"></select>
-      <p class="field-hint">Some Chrome versions only allow Most predictable. If Chrome refuses a level, the page falls back and tells you. <span id="sampling-now"></span></p>
+      <p class="field-hint">Some browsers only allow Most predictable. If yours refuses a level, the page falls back and tells you. <span id="sampling-now"></span></p>
 
       <label for="language">Reply language</label>
       <select id="language"></select>
-      <p class="field-hint">The languages Chrome's built-in model supports.</p>
+      <p class="field-hint">The languages the built-in model supports.</p>
     </div>
     <div class="drawer-foot">
       <span class="spacer"></span>
@@ -461,6 +461,65 @@
     const sendBtn = document.getElementById('send');
     const newChatBtn = document.getElementById('new-chat');
     const statusEl = document.getElementById('status');
+
+    // ---------- Browser ----------
+    // The page checks for the API first and uses it in any browser that has
+    // it. The browser only decides the wording, the model's description of
+    // itself, and which settings pages to point to.
+
+    const BROWSER_INFO = {
+      chrome: {
+        name: 'Chrome',
+        Name: 'Chrome',
+        model: 'Gemini Nano',
+        Model: 'Gemini Nano',
+        fact: 'you are Gemini Nano, the AI model built into Google Chrome',
+        internals: 'chrome://on-device-internals',
+        diskGb: 22,
+      },
+      edge: {
+        name: 'Edge',
+        Name: 'Edge',
+        model: 'Edge\'s built-in AI model',
+        Model: 'Edge\'s built-in AI model',
+        fact: 'you are a small on-device language model that Microsoft builds into the Edge browser',
+        internals: 'edge://on-device-internals',
+        diskGb: 20,
+      },
+      other: {
+        name: 'your browser',
+        Name: 'Your browser',
+        model: 'the built-in AI model',
+        Model: 'The built-in AI model',
+        fact: 'you are a small AI model built into this web browser',
+        internals: null,
+        diskGb: null,
+      },
+    };
+
+    function detectBrowser() {
+      const uad = navigator.userAgentData;
+      const ua = navigator.userAgent;
+      let brand = 'other';
+      let version = null;
+      if (uad && Array.isArray(uad.brands)) {
+        const edge = uad.brands.find((b) => b.brand === 'Microsoft Edge');
+        const chrome = uad.brands.find((b) => b.brand === 'Google Chrome');
+        if (edge) { brand = 'edge'; version = parseInt(edge.version, 10); }
+        else if (chrome) { brand = 'chrome'; version = parseInt(chrome.version, 10); }
+      } else {
+        const e = ua.match(/Edg\/(\d+)/);
+        const c = ua.match(/Chrome\/(\d+)/);
+        if (e) { brand = 'edge'; version = parseInt(e[1], 10); }
+        else if (c && !/OPR\/|Brave|Vivaldi|SamsungBrowser|YaBrowser/.test(ua)) { brand = 'chrome'; version = parseInt(c[1], 10); }
+      }
+      const mobile = uad ? !!uad.mobile : /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+      let framed = false;
+      try { framed = window.self !== window.top; } catch { framed = true; }
+      return { brand, version, mobile, framed, ...BROWSER_INFO[brand] };
+    }
+
+    const ENV = detectBrowser();
 
     // ---------- Toast ----------
 
@@ -497,7 +556,7 @@
     function identityText() {
       const date = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
       return [
-        'Facts about you: you are Gemini Nano, the AI model built into Google Chrome.',
+        `Facts about you: ${ENV.fact}.`,
         'You run entirely on the user\'s own computer, inside their browser.',
         'You are not hosted on any server, and nothing the user types leaves their device.',
         'You have no internet access, so you cannot look things up or see live information.',
@@ -508,9 +567,12 @@
     }
 
     const DEFAULT_PROMPT = [
-      'You are a helpful assistant inside a chat page called Local Gemini Nano Chat.',
+      'You are a helpful assistant inside a private chat page that runs in the user\'s browser.',
       'Keep answers clear and reasonably short. Use Markdown when it helps readability.',
     ].join(' ');
+
+    // The default text before it became browser neutral, for migration.
+    const OLD_DEFAULT_PROMPT = 'You are a helpful assistant inside a chat page called Local Gemini Nano Chat. Keep answers clear and reasonably short. Use Markdown when it helps readability.';
 
     // Starting point when someone switches a prompt to JSON replies.
     const EXAMPLE_SCHEMA = JSON.stringify({
@@ -553,8 +615,8 @@
     const defaultPreset = () => ({ id: 'default', name: 'Default', prompt: DEFAULT_PROMPT, format: 'text', schema: '' });
     const defaultSettings = () => ({ active: 'default', presets: [defaultPreset()], sampling: 'auto', language: 'en' });
     let settings = loadSettings();
-    let activeSampling = null; // the creativity level Chrome actually accepted
-    let languageApplied = true; // whether Chrome accepted the language hint
+    let activeSampling = null; // the creativity level the browser actually accepted
+    let languageApplied = true; // whether the browser accepted the language hint
 
     function cleanPreset(p) {
       if (!p || typeof p !== 'object' || typeof p.id !== 'string' || typeof p.prompt !== 'string') return null;
@@ -574,7 +636,10 @@
         if (!s || typeof s !== 'object') return defaultSettings();
         const presets = (Array.isArray(s.presets) ? s.presets : []).map(cleanPreset).filter(Boolean);
         const def = presets.find((p) => p.id === 'default');
-        if (def) def.name = 'Default';
+        if (def) {
+          def.name = 'Default';
+          if (def.prompt === OLD_DEFAULT_PROMPT) def.prompt = DEFAULT_PROMPT; // older default text
+        }
         else presets.unshift(defaultPreset());
         return {
           active: presets.some((p) => p.id === s.active) ? s.active : 'default',
@@ -851,7 +916,7 @@
       if (!text) { promptEl.focus(); return; }
 
       if (!('LanguageModel' in window)) {
-        addMessage('ai error', 'This browser does not support Chrome\'s built-in AI. Use desktop Chrome 148 or later.');
+        addMessage('ai error', 'Built-in AI is not available in this browser. The card at the top of the chat explains how to fix it.');
         return;
       }
 
@@ -988,10 +1053,10 @@
       const notes = [];
       if (settings.sampling !== 'auto' && activeSampling !== settings.sampling) {
         const using = activeSampling ? labelOf(SAMPLING_MODES, activeSampling) : 'its default';
-        notes.push(`Chrome didn't accept "${labelOf(SAMPLING_MODES, settings.sampling)}" creativity, so it's using ${using}.`);
+        notes.push(`${ENV.Name} didn't accept "${labelOf(SAMPLING_MODES, settings.sampling)}" creativity, so it's using ${using}.`);
       }
       if (settings.language !== 'en' && !languageApplied) {
-        notes.push(`Chrome didn't accept the ${labelOf(LANGUAGES, settings.language)} language setting. The prompt still asks for it.`);
+        notes.push(`${ENV.Name} didn't accept the ${labelOf(LANGUAGES, settings.language)} language setting. The prompt still asks for it.`);
       }
       const msg = notes.join(' ');
       if (msg && msg !== lastFallbackNote) showToast(msg, null, 9000);
@@ -1079,7 +1144,7 @@
       fillSelect(samplingSel, SAMPLING_MODES, draft.sampling);
       fillSelect(languageSel, LANGUAGES, draft.language);
       samplingNow.textContent = session
-        ? `Chrome is using: ${activeSampling ? labelOf(SAMPLING_MODES, activeSampling) : 'its default'}.`
+        ? `${ENV.Name} is using: ${activeSampling ? labelOf(SAMPLING_MODES, activeSampling) : 'its default'}.`
         : '';
       hideNewRow();
       showDraftPreset();
@@ -1279,34 +1344,18 @@
     newChatBtn.addEventListener('click', newChat);
 
     // ---------- Onboarding ----------
-    // A web page can't read chrome://flags. So this checks the symptoms
-    // (missing API, model state, Chrome not answering) and shows the fix.
+    // A web page can't read chrome://flags or edge://flags. So this checks
+    // the symptoms (missing API, model state, the browser not answering) and
+    // shows the fix for the browser in use.
 
     const URLS = {
       promptFlag: 'chrome://flags/#prompt-api-for-gemini-nano',
       modelFlag: 'chrome://flags/#optimization-guide-on-device-model',
-      internals: 'chrome://on-device-internals',
       update: 'chrome://settings/help',
+      edgeFlags: 'edge://flags',
     };
     const MIN_CHROME = 148;
     let onboardCard = null;
-
-    function detectBrowser() {
-      const uad = navigator.userAgentData;
-      const ua = navigator.userAgent;
-      let chrome = null;
-      if (uad && Array.isArray(uad.brands)) {
-        const g = uad.brands.find((b) => b.brand === 'Google Chrome');
-        if (g) chrome = parseInt(g.version, 10);
-      } else {
-        const m = ua.match(/Chrome\/(\d+)/);
-        if (m && !/Edg\/|OPR\//.test(ua)) chrome = parseInt(m[1], 10);
-      }
-      const mobile = uad ? !!uad.mobile : /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
-      let framed = false;
-      try { framed = window.self !== window.top; } catch { framed = true; }
-      return { chrome, mobile, framed };
-    }
 
     function clearOnboarding() {
       if (onboardCard) { onboardCard.remove(); onboardCard = null; }
@@ -1363,7 +1412,7 @@
         if (steps.some((s) => s.url)) {
           const p = document.createElement('p');
           p.className = 'small';
-          p.textContent = 'Chrome blocks links to its own settings pages. Copy each address and paste it into the address bar.';
+          p.textContent = `${ENV.Name} blocks links to its own settings pages. Copy each address and paste it into the address bar.`;
           card.appendChild(p);
         }
       }
@@ -1419,7 +1468,7 @@
       btn.disabled = true;
       btn.textContent = 'Starting...';
       getSession()
-        .then(() => addMessage('note', 'Gemini Nano is ready. Ask anything.'))
+        .then(() => addMessage('note', `${ENV.Model} is ready. Ask anything.`))
         .catch((err) => {
           console.error('[nano]', err);
           btn.disabled = false;
@@ -1428,26 +1477,38 @@
         });
     }
 
-    function showMissingApiCard(env) {
-      if (env.mobile) {
+    function showMissingApiCard() {
+      if (ENV.mobile) {
         return showCard({
           state: 'mobile', warn: true,
           title: 'Phones are not supported yet',
-          intro: 'Gemini Nano runs in Chrome on Windows, Mac, Linux, and Chromebook Plus. Open this page on a computer.',
+          intro: 'Built-in AI runs in desktop Chrome on Windows, Mac, Linux, and Chromebook Plus. Open this page on a computer.',
         });
       }
-      if (!env.chrome) {
+      if (ENV.brand === 'edge') {
+        return showCard({
+          state: 'edge-off',
+          title: 'Turn on built-in AI in Edge',
+          intro: 'Edge\'s Prompt API is a preview. It needs Edge Canary or Dev, version 138 or later, on Windows 10 or 11, or macOS 13.3 or later.',
+          steps: [
+            { text: 'Open this page, search for "Prompt API for on-device language model", and set it to Enabled:', url: URLS.edgeFlags },
+            { text: 'Restart Edge, then reload this page.' },
+          ],
+          note: `On regular Edge, open this page in Google Chrome ${MIN_CHROME} or later instead.`,
+        });
+      }
+      if (ENV.brand !== 'chrome') {
         return showCard({
           state: 'not-chrome', warn: true,
-          title: 'This needs Google Chrome',
-          intro: `Gemini Nano is built into desktop Google Chrome. Open this page in Chrome ${MIN_CHROME} or later.`,
+          title: 'This browser doesn\'t have built-in AI',
+          intro: `Open this page in Google Chrome ${MIN_CHROME} or later on a computer. Microsoft Edge Canary or Dev also works, with a flag turned on.`,
         });
       }
-      if (env.chrome < MIN_CHROME) {
+      if (ENV.version < MIN_CHROME) {
         return showCard({
           state: 'old-chrome',
           title: 'Update Chrome to use this',
-          intro: `You have Chrome ${env.chrome}. Built-in AI is on by default from Chrome ${MIN_CHROME}.`,
+          intro: `You have Chrome ${ENV.version}. Built-in AI is on by default from Chrome ${MIN_CHROME}.`,
           steps: [
             { text: 'Update Chrome here, then relaunch it:', url: URLS.update },
             { text: 'Or, without updating, set this flag to Enabled:', url: URLS.promptFlag },
@@ -1468,16 +1529,40 @@
       });
     }
 
+    // Steps for when the device can't run the model, per browser.
+    function unavailableCard() {
+      if (ENV.brand === 'edge') {
+        return {
+          intro: 'Edge needs a GPU with 5.5 GB or more of video memory, and 20 GB of free disk space.',
+          steps: [
+            { text: 'See exactly what Edge reports:', url: ENV.internals },
+            { text: 'On Edge 150 or later, a smaller preview model may work on this device. Search this page for "Enable prerelease on-device language model", set it to Enabled, and restart Edge:', url: URLS.edgeFlags },
+          ],
+        };
+      }
+      if (ENV.brand === 'chrome') {
+        return {
+          intro: 'Chrome needs a GPU with more than 4 GB of memory, or 16 GB of RAM and 4 CPU cores. It also needs 22 GB of free disk space.',
+          steps: [
+            { text: 'See exactly what Chrome reports:', url: ENV.internals },
+            { text: 'To try anyway, set this flag to "Enabled BypassPerfRequirement" if that option is listed, then relaunch Chrome:', url: URLS.modelFlag },
+          ],
+        };
+      }
+      return { intro: 'Your browser says this device doesn\'t meet the requirements for its built-in model.', steps: [] };
+    }
+
+    const internalsStep = (text) => (ENV.internals ? [{ text, url: ENV.internals }] : []);
+
     async function runOnboarding() {
       clearOnboarding();
-      const env = detectBrowser();
 
-      if (env.framed) {
+      if (ENV.framed) {
         setStatus('Open this page in its own tab.', true);
         showCard({
           state: 'framed', warn: true,
           title: 'Open this page in its own tab',
-          intro: 'Chrome blocks built-in AI inside embedded previews.',
+          intro: `${ENV.Name} blocks built-in AI inside embedded previews.`,
           actions: [{ label: 'Open in new tab', primary: true, onClick: () => window.open(location.href, '_blank', 'noopener') }],
         });
         return;
@@ -1485,11 +1570,11 @@
 
       if (!('LanguageModel' in window)) {
         setStatus('Built-in AI is not available in this browser.', true);
-        showMissingApiCard(env);
+        showMissingApiCard();
         return;
       }
 
-      setStatus('Checking whether Gemini Nano is ready...');
+      setStatus(`Checking whether ${ENV.model} is ready...`);
       const state = await checkAvailability();
 
       if (state === 'available') {
@@ -1501,51 +1586,41 @@
             state: 'load-failed', warn: true,
             title: 'The model did not load',
             intro: `${err.name}: ${err.message}`,
-            steps: [{ text: 'Check the Model Status tab here:', url: URLS.internals }],
+            steps: internalsStep('Check the model status here:'),
             actions: [{ label: 'Try again', primary: true, onClick: () => runOnboarding() }],
           });
         });
       } else if (state === 'downloadable') {
         setStatus('One-time setup needed.');
+        const disk = ENV.diskGb ? ` ${ENV.Name} needs about ${ENV.diskGb} GB of free disk space.` : '';
         showCard({
           state,
-          title: 'One-time setup: download Gemini Nano',
-          intro: 'The model downloads once, then runs offline on this device. It is a few GB, so use Wi-Fi or another unmetered connection. Chrome needs about 22 GB of free disk space.',
+          title: `One-time setup: download ${ENV.model}`,
+          intro: `The model downloads once, then runs offline on this device. It is a few GB, so use Wi-Fi or another unmetered connection.${disk}`,
           actions: [{ label: 'Download now', primary: true, onClick: startDownload }],
           note: 'Or just send a message. The download starts then.',
         });
       } else if (state === 'downloading') {
-        setStatus('Gemini Nano is downloading.');
+        setStatus(`${ENV.Model} is downloading.`);
         showCard({
           state,
-          title: 'Gemini Nano is downloading',
-          intro: 'Chrome is already fetching the model in the background.',
+          title: `${ENV.Model} is downloading`,
+          intro: `${ENV.Name} is already fetching the model in the background.`,
           actions: [{ label: 'Show progress', primary: true, onClick: startDownload }],
         });
       } else if (state === 'unavailable') {
-        setStatus('This device cannot run Gemini Nano.', true);
-        showCard({
-          state, warn: true,
-          title: 'This device can\'t run Gemini Nano',
-          intro: 'Chrome needs a GPU with more than 4 GB of memory, or 16 GB of RAM and 4 CPU cores. It also needs 22 GB of free disk space.',
-          steps: [
-            { text: 'See exactly what Chrome reports:', url: URLS.internals },
-            { text: 'To try anyway, set this flag to "Enabled BypassPerfRequirement" if that option is listed, then relaunch Chrome:', url: URLS.modelFlag },
-          ],
-        });
+        setStatus('This device cannot run the built-in model.', true);
+        showCard({ state, warn: true, title: `This device can't run ${ENV.model}`, ...unavailableCard() });
       } else {
         const failed = state === 'error';
-        setStatus(failed ? 'Chrome could not check the model.' : 'Chrome has not answered yet.', failed);
+        setStatus(failed ? `${ENV.Name} could not check the model.` : `${ENV.Name} has not answered yet.`, failed);
         showCard({
           state: failed ? 'check-failed' : 'stalled',
-          title: failed ? 'Chrome could not check the model' : 'Chrome is slow to answer',
+          title: failed ? `${ENV.Name} could not check the model` : `${ENV.Name} is slow to answer`,
           intro: failed
-            ? 'Chrome returned an error when asked about the model. The console has details.'
-            : 'Chrome has not said whether the model is ready. It may still be setting up in the background.',
-          steps: [
-            { text: 'Send a message to try anyway.' },
-            { text: 'Or check the Model Status tab here:', url: URLS.internals },
-          ],
+            ? `${ENV.Name} returned an error when asked about the model. The console has details.`
+            : `${ENV.Name} has not said whether the model is ready. It may still be setting up in the background.`,
+          steps: [{ text: 'Send a message to try anyway.' }, ...internalsStep('Or check the model status here:')],
           actions: [{ label: 'Check again', primary: true, onClick: () => runOnboarding() }],
         });
       }
