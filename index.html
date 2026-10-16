@@ -229,7 +229,7 @@
 
     <main id="chat" aria-live="polite">
       <div class="empty" id="empty">
-        Ask anything. Replies come from Gemini Nano running inside Chrome, so nothing leaves your machine.
+        Ask anything. Replies come from Gemini Nano running inside Chrome, so nothing leaves your machine. Your chat is saved in this browser until you start a new one.
       </div>
     </main>
 
@@ -256,6 +256,42 @@
     let session = null;
     let loading = null;
     let controller = null; // AbortController for the reply in progress
+
+    // ---------- Saved chat ----------
+    // Stored in this browser only. github.io pages share one origin,
+    // so the key is namespaced.
+
+    const STORE_KEY = 'gemini-nano-chat:history:v1';
+    const MAX_STORED = 100; // messages kept in storage
+    const MAX_CONTEXT = 20; // messages fed back to the model on load
+    let history = loadHistory();
+
+    function loadHistory() {
+      try {
+        const arr = JSON.parse(localStorage.getItem(STORE_KEY) || '[]');
+        if (!Array.isArray(arr)) return [];
+        return arr.filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string');
+      } catch {
+        return [];
+      }
+    }
+
+    function saveHistory() {
+      try {
+        if (history.length) localStorage.setItem(STORE_KEY, JSON.stringify(history.slice(-MAX_STORED)));
+        else localStorage.removeItem(STORE_KEY);
+      } catch {
+        // Storage can be full or blocked. The chat still works without it.
+      }
+    }
+
+    // Recent turns for the model, starting on a user message.
+    function recentTurns(limit) {
+      if (limit <= 0) return []; // slice(-0) would return everything
+      const recent = history.slice(-limit);
+      while (recent.length && recent[0].role !== 'user') recent.shift();
+      return recent;
+    }
 
     // ---------- Status ----------
 
@@ -353,22 +389,39 @@
       }, 1000);
       setStatus('Loading model...');
 
-      const base = {
-        initialPrompts: [{ role: 'system', content: SYSTEM_PROMPT }],
-        monitor(m) {
-          m.addEventListener('downloadprogress', (e) => {
-            setStatus(`Downloading model: ${Math.round(e.loaded * 100)}%`);
-          });
-        },
+      const monitor = (m) => {
+        m.addEventListener('downloadprogress', (e) => {
+          setStatus(`Downloading model: ${Math.round(e.loaded * 100)}%`);
+        });
       };
 
       // Chrome with speculative decoding (MTP) requires 'most-predictable'.
       // Other Chromes may not accept samplingMode, so retry without it.
-      loading = LanguageModel.create({ ...base, samplingMode: 'most-predictable' })
-        .catch((err) => {
+      const createWith = (turns) => {
+        const base = { initialPrompts: [{ role: 'system', content: SYSTEM_PROMPT }, ...turns], monitor };
+        return LanguageModel.create({ ...base, samplingMode: 'most-predictable' }).catch((err) => {
+          if (err.name === 'QuotaExceededError') throw err;
           console.warn('[nano] create with samplingMode failed, retrying without it:', err);
           return LanguageModel.create(base);
-        })
+        });
+      };
+
+      // Feed the saved chat back in so follow-up questions still work.
+      // If it's too long for the model, try fewer messages, then none.
+      const createFitting = async () => {
+        const limits = [MAX_CONTEXT, 4, 0];
+        for (let i = 0; i < limits.length; i++) {
+          const turns = recentTurns(limits[i]);
+          try {
+            return await createWith(turns);
+          } catch (err) {
+            const last = i === limits.length - 1 || !turns.length;
+            if (err.name !== 'QuotaExceededError' || last) throw err;
+            console.warn(`[nano] saved chat too long for the model, trying ${limits[i + 1]} messages`);
+          }
+        }
+      };
+      loading = createFitting()
         .then((s) => {
           session = s;
           clearOnboarding();
@@ -421,6 +474,10 @@
         const reply = await s.prompt(text, { signal: controller.signal });
         bubble.classList.remove('pending');
         renderMarkdown(bubble, reply || '_(no response)_');
+        if (reply) {
+          history.push({ role: 'user', content: text }, { role: 'assistant', content: reply });
+          saveHistory();
+        }
         showContextUsage();
       } catch (err) {
         bubble.classList.remove('pending');
@@ -445,7 +502,10 @@
     }
 
     function newChat() {
+      if (history.length && !confirm('Start a new chat? The current one will be deleted.')) return;
       if (controller) controller.abort();
+      history = [];
+      saveHistory();
       const wasLoaded = !!session;
       if (session) { session.destroy(); session = null; }
       chat.querySelectorAll('.msg').forEach((m) => m.remove());
@@ -747,6 +807,20 @@
           actions: [{ label: 'Check again', primary: true, onClick: () => runOnboarding() }],
         });
       }
+    }
+
+    // Show the saved chat. Waits for DOMContentLoaded, because the Markdown
+    // libraries load with defer and run after this script.
+    function restoreHistory() {
+      history.forEach((m) => {
+        if (m.role === 'user') addMessage('user', m.content);
+        else renderMarkdown(addMessage('ai'), m.content);
+      });
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', restoreHistory);
+    } else {
+      restoreHistory();
     }
 
     runOnboarding();
