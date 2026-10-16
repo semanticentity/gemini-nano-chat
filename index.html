@@ -185,6 +185,37 @@
     }
     .hint { font-size: 12px; color: var(--muted); text-align: center; }
 
+    /* Toast: short message with an optional action, like Undo */
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 96px;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      max-width: calc(100% - 32px);
+      padding: 10px 10px 10px 16px;
+      border-radius: 10px;
+      background: var(--text);
+      color: var(--bg);
+      font-size: 14px;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+      z-index: 10;
+    }
+    .toast[hidden] { display: none; }
+    .toast button {
+      border: none;
+      background: transparent;
+      color: inherit;
+      font-size: 14px;
+      padding: 4px 8px;
+      border-radius: 6px;
+    }
+    .toast #toast-action { font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+    .toast button:hover { background: rgba(127, 127, 127, 0.25); }
+    .toast #toast-close { font-size: 18px; line-height: 1; opacity: 0.7; }
+
     /* Onboarding card */
     .card {
       align-self: stretch;
@@ -239,6 +270,12 @@
       <button id="send" class="primary" type="button">Send</button>
     </div>
     <div class="hint">Enter to send. Shift+Enter for a new line.</div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden>
+      <span id="toast-text"></span>
+      <button id="toast-action" type="button" hidden></button>
+      <button id="toast-close" type="button" aria-label="Dismiss">&times;</button>
+    </div>
   </div>
 
   <script>
@@ -248,6 +285,34 @@
     const sendBtn = document.getElementById('send');
     const newChatBtn = document.getElementById('new-chat');
     const statusEl = document.getElementById('status');
+
+    // ---------- Toast ----------
+
+    const toast = document.getElementById('toast');
+    const toastText = document.getElementById('toast-text');
+    const toastAction = document.getElementById('toast-action');
+    let toastTimer = null;
+
+    function hideToast() {
+      toast.hidden = true;
+      clearTimeout(toastTimer);
+    }
+
+    // showToast('Saved.') or showToast('Chat cleared.', { label: 'Undo', onClick })
+    function showToast(text, action, ms = 8000) {
+      toastText.textContent = text;
+      toastAction.hidden = !action;
+      toastAction.textContent = action ? action.label : '';
+      toastAction.onclick = action ? () => { hideToast(); action.onClick(); } : null;
+      toast.hidden = false;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(hideToast, ms);
+    }
+
+    document.getElementById('toast-close').addEventListener('click', hideToast);
+    // Keep the toast up while the mouse is on it, so Undo doesn't vanish mid-reach.
+    toast.addEventListener('mouseenter', () => clearTimeout(toastTimer));
+    toast.addEventListener('mouseleave', () => { toastTimer = setTimeout(hideToast, 3000); });
 
     // Small models guess about themselves, so state the facts plainly.
     const SYSTEM_PROMPT = [
@@ -469,6 +534,8 @@
       // Start loading right away, while the click still counts as a user gesture.
       const sessionReady = getSession();
 
+      // Sending ends any Undo window, so Undo can't wipe this new message.
+      hideToast();
       addMessage('user', text);
       promptEl.value = '';
       autosize();
@@ -510,9 +577,13 @@
       }
     }
 
+    // Clear right away, then offer Undo instead of asking "are you sure?"
     function newChat() {
-      if (history.length && !confirm('Start a new chat? The current one will be deleted.')) return;
+      const saved = history.slice();
       if (controller) controller.abort();
+      if (saved.length) {
+        showToast('Chat cleared.', { label: 'Undo', onClick: () => undoNewChat(saved) });
+      }
       history = [];
       saveHistory();
       const wasLoaded = !!session;
@@ -525,6 +596,25 @@
         getSession().catch(() => setStatus('The model failed to load. Send a message to retry.', true));
       } else {
         setStatus('New chat.');
+      }
+    }
+
+    function undoNewChat(saved) {
+      history = saved;
+      saveHistory();
+      chat.querySelectorAll('.msg').forEach((m) => m.remove());
+      restoreHistory();
+      setStatus('Chat restored.');
+      // If the model was reloaded empty, wait for that, then reload it
+      // with the restored chat so it remembers the conversation.
+      if (session || loading) {
+        Promise.resolve(loading)
+          .catch(() => {})
+          .then(() => {
+            if (session) { session.destroy(); session = null; }
+            return getSession();
+          })
+          .catch(() => setStatus('The model failed to load. Send a message to retry.', true));
       }
     }
 
