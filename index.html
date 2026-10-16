@@ -249,9 +249,18 @@
     const newChatBtn = document.getElementById('new-chat');
     const statusEl = document.getElementById('status');
 
-    const SYSTEM_PROMPT =
-      'You are a helpful assistant. Keep answers clear and reasonably short. ' +
-      'Use Markdown formatting when it helps readability.';
+    // Small models guess about themselves, so state the facts plainly.
+    const SYSTEM_PROMPT = [
+      'You are a helpful assistant inside a chat page called Local Gemini Nano Chat.',
+      'Facts about you: you are Gemini Nano, the AI model built into Google Chrome.',
+      'You run entirely on the user\'s own computer, inside their browser.',
+      'You are not hosted on any server, and nothing the user types leaves their device.',
+      'You have no internet access, so you cannot look things up or see live information.',
+      'Your knowledge comes from training and may be out of date.',
+      'If you are not sure of a fact, say so instead of guessing.',
+      `Today's date is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.`,
+      'Keep answers clear and reasonably short. Use Markdown when it helps readability.',
+    ].join(' ');
 
     let session = null;
     let loading = null;
