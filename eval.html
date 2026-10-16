@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Tests how well the browser's built-in AI model picks and uses tools.">
+  <title>Model Tool Tests</title>
+  <style>
+    :root {
+      --bg: #f7f7f8;
+      --panel: #ffffff;
+      --border: #e2e2e6;
+      --text: #1a1a1a;
+      --muted: #666;
+      --accent: #0b6bcb;
+      --accent-text: #ffffff;
+      --code-bg: #f3f4f6;
+      --pass: #1a7f37;
+      --fail: #c0392b;
+      --warn: #b26a00;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #16171b;
+        --panel: #1e1f24;
+        --border: #33353c;
+        --text: #e8e8ea;
+        --muted: #9a9ca3;
+        --accent: #4a9eff;
+        --accent-text: #0b0c0e;
+        --code-bg: #2f323a;
+        --pass: #4ac26b;
+        --fail: #ff7b6b;
+        --warn: #f0b44a;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif; line-height: 1.5; }
+    main { max-width: 1000px; margin: 0 auto; padding: 24px 16px 64px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    h2 { font-size: 17px; margin: 0 0 6px; }
+    p { margin: 0 0 10px; }
+    a { color: var(--accent); }
+    .muted { color: var(--muted); font-size: 14px; }
+    section { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-top: 16px; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+    button { font: inherit; font-size: 15px; padding: 8px 16px; border-radius: 8px; cursor: pointer; border: 1px solid var(--border); background: var(--panel); color: var(--text); }
+    button.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    label.check { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; }
+    .status { font-size: 14px; color: var(--muted); }
+    .status.error { color: var(--fail); }
+    .bar { height: 6px; background: var(--code-bg); border-radius: 3px; overflow: hidden; flex: 1; min-width: 120px; }
+    .bar span { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
+    .table-wrap { overflow-x: auto; margin-top: 8px; }
+    table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+    th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+    th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 600; }
+    code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+    td.mono { max-width: 260px; overflow-wrap: anywhere; }
+    td.tool { white-space: nowrap; overflow-wrap: normal; }
+    .pass { color: var(--pass); font-weight: 600; }
+    .fail { color: var(--fail); font-weight: 600; }
+    .skip { color: var(--muted); }
+    .scores { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-top: 12px; }
+    .score { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+    .score .num { font-size: 24px; font-weight: 700; }
+    .score .label { font-size: 13px; color: var(--muted); }
+    textarea { width: 100%; min-height: 160px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Model tool tests</h1>
+  <p class="muted">Checks how well the AI model built into your browser picks the right tool and fills in its inputs. Everything runs here, in your browser. <a href="./">Back to the chat</a></p>
+
+  <section>
+    <h2>1. Tool checks (no AI)</h2>
+    <p class="muted">Runs each tool once with a known answer. The Wikipedia and weather checks call en.wikipedia.org and open-meteo.com.</p>
+    <div class="row">
+      <button id="run-tools" class="primary" type="button">Run tool checks</button>
+      <span id="tools-status" class="status"></span>
+    </div>
+    <div class="table-wrap"><table id="tools-table" hidden>
+      <thead><tr><th>Tool</th><th>Input</th><th>Result</th><th>Time</th><th>Check</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>2. Model test</h2>
+    <p class="muted">Asks the model to pick a tool for each question, using JSON mode. Then runs that tool and checks the answer. Takes a few minutes.</p>
+    <div class="row">
+      <button id="run-model" class="primary" type="button">Run model test</button>
+      <button id="stop-model" type="button" hidden>Stop</button>
+      <label class="check"><input id="baseline" type="checkbox" checked> Also ask without tools, for comparison</label>
+    </div>
+    <div class="row">
+      <div class="bar"><span id="progress"></span></div>
+      <span id="model-status" class="status"></span>
+    </div>
+    <div id="scores" class="scores" hidden></div>
+    <div class="table-wrap"><table id="model-table" hidden>
+      <thead><tr><th>#</th><th>Question</th><th>Expected</th><th>Picked</th><th>Inputs</th><th>Tool result</th><th>With tools</th><th>No tools</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>3. Report</h2>
+    <p class="muted">After the tests finish, copy this and paste it back into the chat with Claude.</p>
+    <div class="row">
+      <button id="copy-report" class="primary" type="button" disabled>Copy report</button>
+      <span id="copy-status" class="status"></span>
+    </div>
+    <textarea id="report" readonly placeholder="The report appears here after you run the tests."></textarea>
+  </section>
+</main>
+
+<script type="module">
+  import { TOOLS, catalogPrompt, routeSchema, runTool, isoDay } from './tools.js';
+
+  const $ = (id) => document.getElementById(id);
+  const report = { version: 'eval-1', started: new Date().toISOString(), browser: detectBrowser(), toolChecks: null, model: null };
+
+  function detectBrowser() {
+    const uad = navigator.userAgentData;
+    let brand = 'other';
+    let version = null;
+    if (uad && Array.isArray(uad.brands)) {
+      const e = uad.brands.find((b) => b.brand === 'Microsoft Edge');
+      const c = uad.brands.find((b) => b.brand === 'Google Chrome');
+      if (e) { brand = 'edge'; version = e.version; } else if (c) { brand = 'chrome'; version = c.version; }
+    } else {
+      const m = navigator.userAgent.match(/Edg\/(\d+)/) || navigator.userAgent.match(/Chrome\/(\d+)/);
+      if (m) { brand = /Edg\//.test(navigator.userAgent) ? 'edge' : 'chrome'; version = m[1]; }
+    }
+    return { brand, version, platform: (uad && uad.platform) || navigator.platform, hasPromptApi: 'LanguageModel' in window };
+  }
+
+  const clip = (v, n = 160) => {
+    const s = typeof v === 'string' ? v : JSON.stringify(v);
+    return s && s.length > n ? `${s.slice(0, n)}...` : s;
+  };
+  const cell = (tr, text, cls) => {
+    const td = document.createElement('td');
+    td.textContent = text ?? '';
+    if (cls) td.className = cls;
+    tr.appendChild(td);
+    return td;
+  };
+  const near = (a, b, tol) => Number.isFinite(Number(a)) && Math.abs(Number(a) - b) <= tol;
+
+  function updateReport() {
+    report.updated = new Date().toISOString();
+    $('report').value = JSON.stringify(report, null, 1);
+    $('copy-report').disabled = !(report.toolChecks || report.model);
+  }
+
+  // ---------- 1. Tool checks ----------
+
+  const TOOL_CHECKS = [
+    ['calculate', { expression: '18% * 2450' }, (r) => r.result === 441],
+    ['days_between', { from: '2026-03-01', to: '2026-12-25' }, (r) => r.days === 299],
+    ['add_days', { date: '2026-11-20', days: 45 }, (r) => r.date === '2027-01-04'],
+    ['convert_units', { value: 72, from: 'F', to: 'C' }, (r) => near(r.result, 22.22, 0.01)],
+    ['text_stats', { text: 'The quick brown fox jumps over the lazy dog.' }, (r) => r.words === 9],
+    ['wikipedia', { query: 'Eiffel Tower' }, (r) => r.found && /paris/i.test(r.summary)],
+    ['weather', { place: 'Austin, TX' }, (r) => r.found && Number.isFinite(r.now.temp_f) && r.days.length === 3],
+  ];
+
+  $('run-tools').addEventListener('click', async () => {
+    const btn = $('run-tools');
+    btn.disabled = true;
+    const tbody = $('tools-table').querySelector('tbody');
+    tbody.textContent = '';
+    $('tools-table').hidden = false;
+    $('tools-status').textContent = 'Running...';
+    const rows = [];
+    for (const [name, args, check] of TOOL_CHECKS) {
+      const tr = document.createElement('tr');
+      cell(tr, name, 'mono tool');
+      cell(tr, JSON.stringify(args), 'mono');
+      const resultTd = cell(tr, 'Running...', 'mono');
+      const timeTd = cell(tr, '');
+      const checkTd = cell(tr, '');
+      tbody.appendChild(tr);
+      const t0 = performance.now();
+      const out = await runTool(name, args, { signal: AbortSignal.timeout(15000) });
+      const ms = Math.round(performance.now() - t0);
+      let ok = false;
+      try { ok = out.ok && !!check(out.result); } catch { ok = false; }
+      resultTd.textContent = out.ok ? clip(out.result) : `Error: ${out.error}`;
+      timeTd.textContent = `${ms} ms`;
+      checkTd.textContent = ok ? 'Pass' : 'Fail';
+      checkTd.className = ok ? 'pass' : 'fail';
+      rows.push({ tool: name, ok, ms, ...(ok ? {} : { got: out.ok ? clip(out.result, 300) : out.error }) });
+    }
+    const passed = rows.filter((r) => r.ok).length;
+    $('tools-status').textContent = `${passed} of ${rows.length} passed.`;
+    report.toolChecks = { passed, total: rows.length, rows };
+    updateReport();
+    btn.disabled = false;
+  });
+
+  // ---------- 2. Model test ----------
+
+  // Expected answers are computed here, independently of tools.js.
+  const now = new Date();
+  const todayUTC = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const in100 = new Date(todayUTC + 100 * 86400000);
+  const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const weekdayIn100 = WEEKDAYS[in100.getUTCDay()];
+
+  const TASKS = [
+    { id: 'calc-pct', q: 'What is 18% of 2,450?', tool: 'calculate', check: (r) => near(r.result, 441, 0.001), answer: { number: 441, tol: 0.001 } },
+    { id: 'calc-mult', q: 'What\'s 1234 times 5678?', tool: 'calculate', check: (r) => near(r.result, 7006652, 0), answer: { number: 7006652, tol: 0 } },
+    { id: 'calc-bill', q: 'If we split a $187.50 dinner bill between 6 people, how much does each person pay?', tool: 'calculate', check: (r) => near(r.result, 31.25, 0.001), answer: { number: 31.25, tol: 0.001 } },
+    { id: 'calc-sqrt', q: 'What is the square root of 1764?', tool: 'calculate', check: (r) => near(r.result, 42, 0.001), answer: { number: 42, tol: 0.001 } },
+    { id: 'calc-tip', q: 'How much is a 20% tip on $64.80?', tool: 'calculate', check: (r) => near(r.result, 12.96, 0.001), answer: { number: 12.96, tol: 0.001 } },
+    { id: 'date-weekday', q: 'What day of the week will it be 100 days from today?', tool: 'add_days', check: (r) => r.weekday === weekdayIn100, answer: { word: weekdayIn100 } },
+    { id: 'date-between', q: 'How many days are there between March 1, 2026 and December 25, 2026?', tool: 'days_between', check: (r) => Math.abs(r.days) === 299, answer: { number: 299, tol: 0 } },
+    { id: 'date-add', q: 'What date is 45 days after November 20, 2026?', tool: 'add_days', check: (r) => r.date === '2027-01-04', answer: { date: ['2027-01-04', 'january 4', 'jan 4', '1/4/2027', '4 january'] } },
+    { id: 'unit-temp', q: 'Convert 72 degrees Fahrenheit to Celsius.', tool: 'convert_units', check: (r) => near(r.result, 22.22, 0.05), answer: { number: 22.22, tol: 0.06 } },
+    { id: 'unit-miles', q: 'How many kilometers is a 26.2 mile marathon?', tool: 'convert_units', check: (r) => near(r.result, 42.165, 0.05), answer: { number: 42.16, tol: 0.06 } },
+    { id: 'unit-kg', q: 'How many pounds is 80 kg?', tool: 'convert_units', check: (r) => near(r.result, 176.37, 0.1), answer: { number: 176.37, tol: 0.2 } },
+    { id: 'text-words', q: 'Count the words in this sentence: The quick brown fox jumps over the lazy dog.', tool: 'text_stats', check: (r) => r.words === 9, answer: { number: 9, tol: 0 } },
+    { id: 'text-letters', q: 'How many letters are in the word "antidisestablishmentarianism"?', tool: 'text_stats', check: (r) => r.letters === 28, answer: { number: 28, tol: 0 } },
+    { id: 'wiki-person', q: 'Who was Ada Lovelace?', tool: 'wikipedia', check: (r) => r.found && /lovelace/i.test(r.title) },
+    { id: 'wiki-thing', q: 'Look up the Eiffel Tower on Wikipedia.', tool: 'wikipedia', check: (r) => r.found && /eiffel/i.test(r.title) },
+    { id: 'weather-now', q: 'What\'s the weather in Austin right now?', tool: 'weather', check: (r) => r.found && /austin/i.test(r.place) },
+    { id: 'weather-rain', q: 'Will it rain in Tel Aviv this week?', tool: 'weather', check: (r) => r.found && /tel aviv/i.test(r.place) },
+    { id: 'none-haiku', q: 'Write a haiku about coffee.', tool: 'none' },
+    { id: 'none-hi', q: 'Hi! How are you today?', tool: 'none' },
+    { id: 'none-explain', q: 'Explain what a CPU does in one sentence.', tool: 'none' },
+    { id: 'none-rewrite', q: 'Rewrite this to sound friendlier: Send me the report now.', tool: 'none' },
+  ];
+
+  // Did a plain-text answer contain the expected value?
+  function answerMatches(text, ans) {
+    const t = String(text || '').toLowerCase();
+    if (ans.word) return t.includes(ans.word.toLowerCase());
+    if (ans.date) return ans.date.some((d) => t.includes(d));
+    const nums = (t.replace(/(\d),(?=\d{3}\b)/g, '$1').match(/-?\d+(?:\.\d+)?/g) || []).map(Number);
+    return nums.some((n) => Math.abs(n - ans.number) <= ans.tol);
+  }
+
+  function parseRoute(raw) {
+    const s = String(raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    try {
+      const v = JSON.parse(s);
+      return v && typeof v === 'object' ? v : null;
+    } catch {
+      const m = s.match(/\{[\s\S]*\}/);
+      if (m) { try { return JSON.parse(m[0]); } catch { /* fall through */ } }
+      return null;
+    }
+  }
+
+  let samplingUsed = null;
+  async function makeSession(system, monitor) {
+    const base = { initialPrompts: [{ role: 'system', content: system }] };
+    if (monitor) base.monitor = monitor;
+    try {
+      const s = await LanguageModel.create({ ...base, samplingMode: 'most-predictable' });
+      samplingUsed = 'most-predictable';
+      return s;
+    } catch (err) {
+      if (err.name === 'QuotaExceededError') throw err;
+      const s = await LanguageModel.create(base);
+      samplingUsed = 'default';
+      return s;
+    }
+  }
+  const fresh = async (base, system) => (typeof base.clone === 'function' ? base.clone() : makeSession(system));
+
+  let stopper = null;
+
+  $('stop-model').addEventListener('click', () => { if (stopper) stopper.abort(); });
+
+  $('run-model').addEventListener('click', async () => {
+    const status = $('model-status');
+    status.classList.remove('error');
+    if (!('LanguageModel' in window)) {
+      status.textContent = 'This browser has no built-in AI. Open the chat page first, it explains how to turn it on.';
+      status.classList.add('error');
+      return;
+    }
+    const withBaseline = $('baseline').checked;
+    $('run-model').disabled = true;
+    $('stop-model').hidden = false;
+    stopper = new AbortController();
+    const tbody = $('model-table').querySelector('tbody');
+    tbody.textContent = '';
+    $('model-table').hidden = false;
+    $('scores').hidden = true;
+
+    const routerSystem = catalogPrompt(TOOLS, now);
+    const baselineSystem = `Answer briefly and give the final answer clearly. Today is ${isoDay(todayUTC)}.`;
+    const model = {
+      withBaseline, catalogChars: routerSystem.length, samplingUsed: null, schemaSupported: true,
+      catalogTokens: null, contextWindow: null, results: [], aborted: false,
+    };
+    report.model = model;
+
+    let router;
+    let plain;
+    try {
+      status.textContent = 'Loading the model...';
+      router = await makeSession(routerSystem, (m) => m.addEventListener('downloadprogress', (e) => {
+        status.textContent = `Downloading the model: ${Math.round(e.loaded * 100)}%`;
+      }));
+      model.samplingUsed = samplingUsed;
+      model.catalogTokens = router.contextUsage ?? router.inputUsage ?? null;
+      model.contextWindow = router.contextWindow ?? router.inputQuota ?? null;
+      if (withBaseline) plain = await makeSession(baselineSystem);
+    } catch (err) {
+      status.textContent = `Could not load the model: ${err.name}: ${err.message}`;
+      status.classList.add('error');
+      model.loadError = `${err.name}: ${err.message}`;
+      updateReport();
+      $('run-model').disabled = false;
+      $('stop-model').hidden = true;
+      return;
+    }
+
+    const schema = routeSchema(TOOLS);
+    for (let i = 0; i < TASKS.length; i++) {
+      if (stopper.signal.aborted) { model.aborted = true; break; }
+      const task = TASKS[i];
+      status.textContent = `Question ${i + 1} of ${TASKS.length}...`;
+      $('progress').style.width = `${Math.round((i / TASKS.length) * 100)}%`;
+
+      const tr = document.createElement('tr');
+      cell(tr, String(i + 1));
+      cell(tr, task.q);
+      cell(tr, task.tool, 'mono tool');
+      const pickedTd = cell(tr, '...', 'mono tool');
+      const argsTd = cell(tr, '', 'mono');
+      const resultTd = cell(tr, '', 'mono');
+      const withTd = cell(tr, '');
+      const withoutTd = cell(tr, withBaseline && task.answer ? '...' : 'n/a', withBaseline && task.answer ? '' : 'skip');
+      tbody.appendChild(tr);
+
+      const row = { id: task.id, expect: task.tool };
+      const signal = AbortSignal.any([stopper.signal, AbortSignal.timeout(90000)]);
+
+      // Route with tools.
+      let raw = '';
+      const t0 = performance.now();
+      try {
+        const s = await fresh(router, routerSystem);
+        try {
+          raw = await s.prompt(task.q, { signal, responseConstraint: schema });
+        } catch (err) {
+          if (err.name === 'AbortError' || err.name === 'TimeoutError' || err.name === 'QuotaExceededError') throw err;
+          model.schemaSupported = false;
+          raw = await s.prompt(`${task.q}\n\nReply with JSON only.`, { signal });
+        }
+        if (s !== router && typeof s.destroy === 'function') s.destroy();
+      } catch (err) {
+        row.error = `${err.name}: ${err.message}`;
+      }
+      row.routeMs = Math.round(performance.now() - t0);
+      const route = parseRoute(raw);
+      row.picked = route ? route.tool : null;
+      row.args = route ? route.args : null;
+      row.routeOk = row.picked === task.tool;
+      if (!route) row.raw = clip(raw, 200);
+      pickedTd.textContent = row.picked ?? (row.error ? 'error' : 'bad JSON');
+      pickedTd.className = `mono tool ${row.routeOk ? 'pass' : 'fail'}`;
+      argsTd.textContent = row.args ? clip(row.args, 120) : (row.raw || row.error || '');
+
+      // Run the picked tool and check the answer.
+      if (task.tool === 'none') {
+        row.endToEnd = row.routeOk;
+        resultTd.textContent = 'n/a';
+      } else if (row.picked && row.picked !== 'none') {
+        const out = await runTool(row.picked, row.args, { signal: AbortSignal.timeout(15000) });
+        row.argsOk = out.ok;
+        let ok = false;
+        if (out.ok && row.routeOk) { try { ok = !!task.check(out.result); } catch { ok = false; } }
+        row.endToEnd = ok;
+        resultTd.textContent = out.ok ? clip(out.result, 120) : `Error: ${out.error}`;
+        if (!ok) row.toolOut = out.ok ? clip(out.result, 200) : out.error;
+      } else {
+        row.endToEnd = false;
+        resultTd.textContent = 'not run';
+      }
+      withTd.textContent = row.endToEnd ? 'Pass' : 'Fail';
+      withTd.className = row.endToEnd ? 'pass' : 'fail';
+
+      // Same question, no tools.
+      if (withBaseline && task.answer && !stopper.signal.aborted) {
+        const t1 = performance.now();
+        try {
+          const s = await fresh(plain, baselineSystem);
+          const text = await s.prompt(task.q, { signal });
+          if (s !== plain && typeof s.destroy === 'function') s.destroy();
+          row.baseline = answerMatches(text, task.answer);
+          if (!row.baseline) row.baselineRaw = clip(text, 120);
+        } catch (err) {
+          row.baseline = false;
+          row.baselineRaw = `${err.name}: ${err.message}`;
+        }
+        row.baselineMs = Math.round(performance.now() - t1);
+        withoutTd.textContent = row.baseline ? 'Pass' : 'Fail';
+        withoutTd.className = row.baseline ? 'pass' : 'fail';
+      }
+
+      model.results.push(row);
+      updateReport();
+    }
+
+    $('progress').style.width = '100%';
+    if (router && typeof router.destroy === 'function') router.destroy();
+    if (plain && typeof plain.destroy === 'function') plain.destroy();
+
+    // Scores.
+    const r = model.results;
+    const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
+    const toolTasks = r.filter((x) => x.expect !== 'none');
+    const routed = r.filter((x) => x.routeOk).length;
+    const argsOk = toolTasks.filter((x) => x.routeOk && x.argsOk).length;
+    const e2e = r.filter((x) => x.endToEnd).length;
+    const withAnswer = r.filter((x) => x.baseline !== undefined);
+    const base = withAnswer.filter((x) => x.baseline).length;
+    const sameWithTools = withAnswer.filter((x) => x.endToEnd).length;
+    const avgMs = r.length ? Math.round(r.reduce((n, x) => n + x.routeMs, 0) / r.length) : 0;
+    model.scores = {
+      picked_right_tool: `${routed}/${r.length}`,
+      valid_inputs: `${argsOk}/${toolTasks.length}`,
+      right_answer_with_tools: `${e2e}/${r.length}`,
+      right_answer_without_tools: withAnswer.length ? `${base}/${withAnswer.length}` : 'not run',
+      same_questions_with_tools: withAnswer.length ? `${sameWithTools}/${withAnswer.length}` : 'not run',
+      avg_route_ms: avgMs,
+    };
+    const scores = $('scores');
+    scores.textContent = '';
+    const tiles = [
+      [`${pct(routed, r.length)}%`, `Picked the right tool (${routed} of ${r.length})`],
+      [`${pct(argsOk, toolTasks.length)}%`, `Valid tool inputs (${argsOk} of ${toolTasks.length})`],
+      [`${pct(e2e, r.length)}%`, `Right answer with tools (${e2e} of ${r.length})`],
+      ...(withAnswer.length ? [[`${pct(base, withAnswer.length)}%`, `Right answer without tools, same questions (${base} of ${withAnswer.length}; with tools: ${sameWithTools})`]] : []),
+      [`${(avgMs / 1000).toFixed(1)}s`, 'Average time to pick a tool'],
+    ];
+    tiles.forEach(([num, label]) => {
+      const d = document.createElement('div');
+      d.className = 'score';
+      const a = document.createElement('div');
+      a.className = 'num';
+      a.textContent = num;
+      const b = document.createElement('div');
+      b.className = 'label';
+      b.textContent = label;
+      d.append(a, b);
+      scores.appendChild(d);
+    });
+    scores.hidden = false;
+    status.textContent = model.aborted ? 'Stopped. The report has the questions that finished.' : 'Done. Copy the report below and send it back.';
+    updateReport();
+    $('run-model').disabled = false;
+    $('stop-model').hidden = true;
+  });
+
+  // ---------- 3. Report ----------
+
+  $('copy-report').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText($('report').value);
+      $('copy-status').textContent = 'Copied. Paste it into the chat.';
+    } catch {
+      $('report').select();
+      $('copy-status').textContent = 'Copy failed. The text is selected, so press Cmd+C or Ctrl+C.';
+    }
+  });
+
+  updateReport();
+</script>
+</body>
+</html>

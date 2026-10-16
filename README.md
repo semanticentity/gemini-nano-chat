@@ -20,6 +20,12 @@ A tiny chat page that talks to the AI model built into your browser: Gemini Nano
 - Light and dark mode, works at phone width.
 - Falls back to plain text if the Markdown libraries can't load.
 
+## Model tool tests
+
+[eval.html](https://semanticentity.github.io/gemini-nano-chat/eval.html) tests how well the built-in model picks tools. It runs each tool once with a known answer, then asks the model to route 21 questions using JSON mode, runs the picked tools, and scores the answers. It can also ask the same questions without tools, for comparison. **Copy report** gives a JSON summary to share.
+
+The tools live in `tools.js`: a safe calculator (no eval), date math, unit conversion, text stats, plus Wikipedia and Open-Meteo weather lookups. The model only picks a tool and fills in its inputs. The code that has to be correct is written and tested ahead of time.
+
 ## Browser support
 
 The page checks for the Prompt API first, and uses it in any browser that has it. The browser only decides the wording, how the model describes itself, and which settings pages the setup cards point to.
