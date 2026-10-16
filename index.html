@@ -31,6 +31,7 @@
       --error: #c0392b;
       --note-bg: #fff8e1;
       --note-text: #6b5800;
+      --warn: #b26a00;
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -48,6 +49,7 @@
         --error: #ff7b6b;
         --note-bg: #3a3420;
         --note-text: #f0d98a;
+        --warn: #f0b44a;
       }
     }
 
@@ -216,6 +218,67 @@
     .toast button:hover { background: rgba(127, 127, 127, 0.25); }
     .toast #toast-close { font-size: 18px; line-height: 1; opacity: 0.7; }
 
+    /* Header buttons */
+    .header-actions { display: flex; gap: 8px; flex: none; }
+    .mode-btn { display: inline-flex; align-items: center; gap: 6px; max-width: 46vw; }
+    .mode-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mode-btn svg { flex: none; }
+    #empty-mode { margin-top: 10px; color: var(--text); }
+    #empty-mode:empty { display: none; }
+
+    /* Settings drawer */
+    .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 20; }
+    .backdrop[hidden], .drawer[hidden] { display: none; }
+    .drawer {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: min(480px, 100%);
+      background: var(--panel);
+      color: var(--text);
+      border-left: 1px solid var(--border);
+      box-shadow: -8px 0 32px rgba(0, 0, 0, 0.2);
+      z-index: 21;
+      display: flex;
+      flex-direction: column;
+    }
+    .drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+    .drawer-head h2 { margin: 0; font-size: 17px; }
+    .icon-btn { border: none; background: transparent; color: var(--text); font-size: 22px; line-height: 1; padding: 4px 8px; border-radius: 6px; }
+    .icon-btn:hover { background: var(--code-bg); }
+    .drawer-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 6px; }
+    .drawer-body label { font-size: 13px; font-weight: 600; margin-top: 12px; }
+    .drawer-body label:first-child { margin-top: 0; }
+    .drawer-body .opt { font-weight: 400; color: var(--muted); }
+    .drawer select, .drawer textarea {
+      font: inherit;
+      font-size: 14px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      width: 100%;
+    }
+    .drawer textarea { resize: vertical; max-height: none; line-height: 1.45; }
+    .drawer select:focus, .drawer textarea:focus { outline: none; border-color: var(--accent); }
+    #sys-prompt { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; min-height: 240px; }
+    .field-hint { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+    .meter { margin-top: 2px; }
+    .meter .bar { height: 6px; background: var(--code-bg); border-radius: 3px; overflow: hidden; }
+    .meter .bar span { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
+    .meter.warn .bar span { background: var(--warn); }
+    .meter.bad .bar span { background: var(--error); }
+    .meter .meter-text { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+    .meter.bad .meter-text { color: var(--error); }
+    .locked { margin-top: 14px; font-size: 13px; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px; padding: 8px 10px; }
+    .locked summary { cursor: pointer; font-weight: 600; color: var(--text); }
+    .locked p { margin: 8px 0 0; line-height: 1.5; }
+    .drawer-foot { display: flex; gap: 8px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--border); }
+    .drawer-foot .spacer { flex: 1; }
+    .drawer-foot .primary { font-size: 14px; padding: 8px 18px; }
+
     /* Onboarding card */
     .card {
       align-self: stretch;
@@ -255,12 +318,19 @@
         <h1>Local Gemini Nano Chat</h1>
         <div id="status" role="status">Runs on your device. The model loads on your first message.</div>
       </div>
-      <button id="new-chat" class="secondary" type="button">New chat</button>
+      <div class="header-actions">
+        <button id="mode-btn" class="secondary mode-btn" type="button" aria-haspopup="dialog" aria-controls="settings">
+          <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+          <span id="mode-name">General chat</span>
+        </button>
+        <button id="new-chat" class="secondary" type="button">New chat</button>
+      </div>
     </header>
 
     <main id="chat" aria-live="polite">
       <div class="empty" id="empty">
-        Ask anything. Replies come from Gemini Nano running inside Chrome, so nothing leaves your machine. Your chat is saved in this browser until you start a new one.
+        <div>Ask anything. Replies come from Gemini Nano running inside Chrome, so nothing leaves your machine. Your chat is saved in this browser until you start a new one.</div>
+        <div id="empty-mode"></div>
       </div>
     </main>
 
@@ -277,6 +347,42 @@
       <button id="toast-close" type="button" aria-label="Dismiss">&times;</button>
     </div>
   </div>
+
+  <div id="settings-backdrop" class="backdrop" hidden></div>
+  <aside id="settings" class="drawer" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
+    <div class="drawer-head">
+      <h2 id="settings-title">Settings</h2>
+      <button id="settings-close" class="icon-btn" type="button" aria-label="Close settings">&times;</button>
+    </div>
+    <div class="drawer-body">
+      <label for="preset">Mode</label>
+      <select id="preset"></select>
+      <p id="preset-desc" class="field-hint"></p>
+
+      <label for="sys-prompt">System prompt</label>
+      <textarea id="sys-prompt" spellcheck="false"></textarea>
+      <div id="prompt-meter" class="meter" aria-live="polite">
+        <div class="bar"><span></span></div>
+        <div class="meter-text"></div>
+      </div>
+      <p id="json-note" class="field-hint" hidden>This mode always replies in JSON that matches a fixed format. The chat shows it as a score table, with the raw JSON below.</p>
+
+      <label for="custom-rules">Custom rules <span class="opt">(optional)</span></label>
+      <textarea id="custom-rules" rows="4" placeholder="Extra rules added to the end of the prompt, in any mode."></textarea>
+
+      <details class="locked">
+        <summary>Always included (locked)</summary>
+        <p>These lines go first in every mode, so the model knows what it is and where it runs.</p>
+        <p id="identity-text"></p>
+      </details>
+    </div>
+    <div class="drawer-foot">
+      <button id="settings-reset" class="secondary" type="button">Reset this mode</button>
+      <span class="spacer"></span>
+      <button id="settings-cancel" class="secondary" type="button">Cancel</button>
+      <button id="settings-apply" class="primary" type="button">Apply</button>
+    </div>
+  </aside>
 
   <script>
     const chat = document.getElementById('chat');
@@ -314,18 +420,209 @@
     toast.addEventListener('mouseenter', () => clearTimeout(toastTimer));
     toast.addEventListener('mouseleave', () => { toastTimer = setTimeout(hideToast, 3000); });
 
-    // Small models guess about themselves, so state the facts plainly.
-    const SYSTEM_PROMPT = [
-      'You are a helpful assistant inside a chat page called Local Gemini Nano Chat.',
-      'Facts about you: you are Gemini Nano, the AI model built into Google Chrome.',
-      'You run entirely on the user\'s own computer, inside their browser.',
-      'You are not hosted on any server, and nothing the user types leaves their device.',
-      'You have no internet access, so you cannot look things up or see live information.',
-      'Your knowledge comes from training and may be out of date.',
-      'If you are not sure of a fact, say so instead of guessing.',
-      `Today's date is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.`,
-      'Keep answers clear and reasonably short. Use Markdown when it helps readability.',
-    ].join(' ');
+    // ---------- Modes and system prompt ----------
+
+    // Locked: always goes first in every mode. Small models guess about
+    // themselves, so this states the facts plainly.
+    function identityText() {
+      const date = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      return [
+        'Facts about you: you are Gemini Nano, the AI model built into Google Chrome.',
+        'You run entirely on the user\'s own computer, inside their browser.',
+        'You are not hosted on any server, and nothing the user types leaves their device.',
+        'You have no internet access, so you cannot look things up or see live information.',
+        'Your knowledge comes from training and may be out of date.',
+        'If you are not sure of a fact, say so instead of guessing.',
+        `Today's date is ${date}.`,
+      ].join(' ');
+    }
+
+    const EEAT_DIMENSIONS = [
+      ['authorship', 'Authorship and expertise'],
+      ['citations', 'Citation quality'],
+      ['effort', 'Content effort'],
+      ['originality', 'Originality'],
+      ['intent', 'Page intent'],
+      ['writing', 'Writing quality'],
+    ];
+
+    const EEAT_SCHEMA = {
+      type: 'object',
+      properties: {
+        scores: {
+          type: 'object',
+          properties: Object.fromEntries(EEAT_DIMENSIONS.map(([k]) => [k, { type: 'integer' }])),
+          required: EEAT_DIMENSIONS.map(([k]) => k),
+        },
+        reasoning: {
+          type: 'object',
+          properties: Object.fromEntries(EEAT_DIMENSIONS.map(([k]) => [k, { type: 'string' }])),
+          required: EEAT_DIMENSIONS.map(([k]) => k),
+        },
+        critical_summary: { type: 'string' },
+        overall_verdict: { type: 'string', enum: ['Pass', 'Fail', 'Needs Improvement'] },
+      },
+      required: ['scores', 'reasoning', 'critical_summary', 'overall_verdict'],
+    };
+
+    // Adapted from BiasHunt and trimmed to fit Gemini Nano's small memory.
+    const PRESETS = [
+      {
+        id: 'general',
+        name: 'General chat',
+        desc: 'Everyday questions and help.',
+        placeholder: 'Ask something...',
+        prompt: [
+          'You are a helpful assistant inside a chat page called Local Gemini Nano Chat.',
+          'Keep answers clear and reasonably short. Use Markdown when it helps readability.',
+        ].join(' '),
+      },
+      {
+        id: 'bias',
+        name: 'Bias Detective',
+        desc: 'Finds bias, rhetorical devices, and propaganda tactics in text you paste.',
+        placeholder: 'Paste text to check for bias...',
+        prompt: `You are Bias Detective. The user pastes text. Find directed bias, manipulative rhetorical devices, and propaganda tactics in it, even when they are disguised or seem neutral. Only flag tactics the author is actually using, not ones the text merely discusses.
+
+Bias types:
+1. Statistical bias: data or methods that systematically favor certain outcomes.
+2. Cultural bias: judgments shaped by norms and experience, such as gender, race, age, religion, class, politics, or geography.
+3. Cognitive bias: systematic errors in reasoning or judgment.
+
+Common tactics to look for: ad hominem, appeal to fear, appeal to authority, bandwagon, black-and-white fallacy, cherry picking, euphemism, dysphemism, exaggeration, framing, glittering generalities, guilt by association, half-truth, loaded language, minimization, name-calling, non sequitur, red herring, scapegoating, straw man, unstated assumption, whataboutism. Others count too.
+
+Rules:
+- Avoid your own bias. Consider the context, the author's intent, and the audience.
+- Label sarcasm, trolling, or humor when you can tell.
+- Quote the exact words that show each tactic.
+- If you find nothing, say "No bias detected."
+
+Output a Markdown table with these columns:
+Quote | Tactic or bias | Type | Confidence (Low/Med/High) | Explanation
+
+Below the table:
+1. A short overview of the text and your findings.
+2. The likely agenda, if one is apparent.
+3. Whether the text is a problem, and a calm way to respond.
+4. A neutral rewrite of the most biased sentence.`,
+      },
+      {
+        id: 'ymyl',
+        name: 'YMYL Fact Checker',
+        desc: 'Pulls out claims, stats, and sources, and flags weak evidence.',
+        placeholder: 'Paste text to fact check...',
+        prompt: `You are a YMYL fact checker. YMYL means "Your Money or Your Life": health, finance, legal, and safety topics where bad information can hurt people. The user pastes text. Break it into atomic claims and judge the evidence behind each one. You cannot browse the web, so judge how well each claim is supported, not whether it is true.
+
+Extract:
+1. Claims: definite statements of fact.
+2. Statistics: specific numbers.
+3. Citations: named studies, laws, or authorities.
+4. Vague sources: phrases like "studies show" or "experts agree" with no specific source.
+
+Quality signals:
+- Freshness: recent dates, or outdated references?
+- Authority: specific, credible sources named?
+- Precision: specific numbers ("47%") or vague words ("many")?
+
+Rules:
+- Be very skeptical.
+- Flag any medical, financial, or legal claim without a specific citation.
+- Point out weasel words that hide a lack of evidence.
+
+Output a Markdown table with these columns:
+Type | Exact text | Signal | Assessment
+
+Then give a one paragraph verdict on how trustworthy the text is.`,
+      },
+      {
+        id: 'eeat',
+        name: 'E-E-A-T Audit (JSON)',
+        desc: 'Scores content on Google E-E-A-T. Always replies in JSON.',
+        placeholder: 'Paste content to audit...',
+        schema: EEAT_SCHEMA,
+        view: 'eeat',
+        prompt: `You are a strict, honest auditor of Google's E-E-A-T guidelines: Experience, Expertise, Authoritativeness, and Trustworthiness. The user pastes content. Score it from 1 to 10 on each dimension and explain each score briefly.
+
+Dimensions:
+- authorship: Is the author clear, verifiable, and expert? (1 = anonymous, 10 = verified world class expert)
+- citations: Are claims backed by primary sources? (1 = none, 10 = scientific or legal primary sources)
+- effort: How hard is this to replicate? (1 = generic or spun, 10 = original research, data, or tools)
+- originality: Does it add new information? (1 = rehash, 10 = new data or perspective)
+- intent: Why does it exist? (1 = deceptive or SEO only, 10 = genuinely helpful)
+- writing: Readability and clarity. (1 = fluff, 10 = professional and concise)
+
+Reply with JSON in this shape:
+{"scores": {"authorship": 0, "citations": 0, "effort": 0, "originality": 0, "intent": 0, "writing": 0}, "reasoning": {"authorship": "", "citations": "", "effort": "", "originality": "", "intent": "", "writing": ""}, "critical_summary": "2 or 3 sentences on the biggest weakness.", "overall_verdict": "Pass, Fail, or Needs Improvement"}`,
+      },
+      {
+        id: 'propaganda',
+        name: 'Propaganda Archetypes',
+        desc: 'Classifies text into common propaganda patterns and suggests a counter.',
+        placeholder: 'Paste text to classify...',
+        prompt: `You are a propaganda pattern classifier. The user pastes text. Identify which known propaganda archetypes it uses, if any.
+
+Archetypes:
+1. Firehose of Falsehood: many rapid claims with no concern for consistency. Counter: focus on one or two checkable core claims.
+2. Limited Hangout + Whataboutism: admits a small wrong, then deflects to the critic's flaws. Counter: accept the admission, return to the main issue.
+3. Soft Relativism ("nuance laundering"): uses "it's complicated" or selective positives to soften serious harms. Counter: separate real complexity from false balance.
+4. Moral Equivalence Flip: treats very different actions as the same. Counter: compare scale and severity.
+5. Victimhood Inversion: the accused side claims to be the victim. Counter: address the facts regardless of motives.
+6. Narrative Anchoring: plants a false premise early, often in a loaded question. Counter: reject the frame and restate the real claim.
+7. Emotional Hijacking: triggers fear, outrage, or tribal loyalty before reasoning. Counter: name the emotion, return to facts.
+8. Authority Laundering: uses credentials or "experts agree" instead of evidence. Counter: ask for the specific source.
+9. Strategic Ambiguity: vague wording that allows deniability or dog whistles. Counter: ask for concrete definitions.
+10. Gaslighting Cascade: denies documented events and floods counter narratives. Counter: anchor to dated primary sources.
+11. Perpetual Deferral: "now is not the time" to criticize, with no end date. Counter: harms happening now need critique now.
+12. Term Hijack: uses words like "psyop" or "limited hangout" to dismiss critics. Counter: judge the evidence, not the label.
+
+Shield words to watch: "nuance," "context," "not black and white," "both sides," "balanced view," "simplistic," "reductive."
+
+Confidence: High = 3 or more supporting sentences. Medium = 1 or 2. Low = weak or ambiguous signs.
+
+Output a Markdown table with these columns:
+Archetype | Confidence | Severity (Critical/High/Medium/Low) | Key quote | Why it applies
+
+Then:
+1. The primary archetype, or "No propaganda archetype detected."
+2. How the archetypes work together, if more than one appears.
+3. Sophistication: Amateur, Intermediate, or Professional.
+4. A short counter script: acknowledge without conceding, ask for primary sources, name what is left out, and force specifics.`,
+      },
+    ];
+
+    const presetById = (id) => PRESETS.find((p) => p.id === id) || PRESETS[0];
+
+    const SETTINGS_KEY = 'gemini-nano-chat:settings:v1';
+    let settings = loadSettings();
+
+    function loadSettings() {
+      const fallback = { preset: 'general', edits: {}, rules: '' };
+      try {
+        const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+        const edits = {};
+        if (s.edits && typeof s.edits === 'object') {
+          for (const [k, v] of Object.entries(s.edits)) {
+            if (typeof v === 'string' && PRESETS.some((p) => p.id === k)) edits[k] = v;
+          }
+        }
+        return { preset: presetById(s.preset).id, edits, rules: typeof s.rules === 'string' ? s.rules : '' };
+      } catch {
+        return fallback;
+      }
+    }
+
+    function saveSettings() {
+      try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* storage blocked */ }
+    }
+
+    const activePreset = () => presetById(settings.preset);
+    const promptFor = (id, edits) => (typeof edits[id] === 'string' ? edits[id] : presetById(id).prompt);
+
+    function composeSystemPrompt({ preset, edits, rules }) {
+      const parts = [identityText(), promptFor(preset, edits)];
+      if (rules.trim()) parts.push(`Additional custom rules:\n${rules.trim()}`);
+      return parts.join('\n\n');
+    }
 
     let session = null;
     let loading = null;
@@ -344,7 +641,9 @@
       try {
         const arr = JSON.parse(localStorage.getItem(STORE_KEY) || '[]');
         if (!Array.isArray(arr)) return [];
-        return arr.filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string');
+        return arr
+          .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+          .map((m) => (typeof m.view === 'string' ? { role: m.role, content: m.content, view: m.view } : { role: m.role, content: m.content }));
       } catch {
         return [];
       }
@@ -374,15 +673,18 @@
       statusEl.classList.toggle('error', isError);
     }
 
+    // Newer Chrome: contextUsage/contextWindow. Older: inputUsage/inputQuota.
+    function usageText(s) {
+      if (!s) return '';
+      const used = s.contextUsage ?? s.inputUsage;
+      const max = s.contextWindow ?? s.inputQuota;
+      if (typeof used !== 'number' || typeof max !== 'number' || max <= 0) return '';
+      const pct = Math.round((used / max) * 100);
+      return ` Memory used: ${pct}% (${used.toLocaleString()} of ${max.toLocaleString()} tokens).`;
+    }
+
     function showContextUsage() {
-      if (!session) return;
-      // Newer Chrome: contextUsage/contextWindow. Older: inputUsage/inputQuota.
-      const used = session.contextUsage ?? session.inputUsage;
-      const max = session.contextWindow ?? session.inputQuota;
-      if (typeof used === 'number' && typeof max === 'number' && max > 0) {
-        const pct = Math.round((used / max) * 100);
-        setStatus(`Ready. Context used: ${pct}% (${used} of ${max} tokens).`);
-      }
+      if (session) setStatus(`Ready.${usageText(session)}`);
     }
 
     // ---------- Rendering ----------
@@ -472,7 +774,13 @@
       // Chrome with speculative decoding (MTP) requires 'most-predictable'.
       // Other Chromes may not accept samplingMode, so retry without it.
       const createWith = (turns) => {
-        const base = { initialPrompts: [{ role: 'system', content: SYSTEM_PROMPT }, ...turns], monitor };
+        const base = {
+          initialPrompts: [
+            { role: 'system', content: composeSystemPrompt(settings) },
+            ...turns.map(({ role, content }) => ({ role, content })),
+          ],
+          monitor,
+        };
         return LanguageModel.create({ ...base, samplingMode: 'most-predictable' }).catch((err) => {
           if (err.name === 'QuotaExceededError') throw err;
           console.warn('[nano] create with samplingMode failed, retrying without it:', err);
@@ -502,7 +810,7 @@
           s.addEventListener?.('contextoverflow', () => {
             addMessage('note', 'This chat is long, so the oldest messages are being dropped from the model\'s memory. Start a new chat for a clean slate.');
           });
-          setStatus(`Ready. Loaded in ${Math.round((Date.now() - start) / 1000)}s.`);
+          setStatus(`Ready. Loaded in ${Math.round((Date.now() - start) / 1000)}s.${usageText(s)}`);
           return s;
         })
         .finally(() => {
@@ -543,15 +851,19 @@
       const bubble = addMessage('ai pending', session ? 'Thinking...' : 'Loading the model, then thinking...');
       controller = new AbortController();
       setBusy(true);
+      const preset = activePreset(); // the mode at send time decides how the reply renders
 
       try {
         const s = await sessionReady;
         bubble.textContent = 'Thinking...';
-        const reply = await s.prompt(text, { signal: controller.signal });
+        const reply = await askModel(s, text, preset, controller.signal);
         bubble.classList.remove('pending');
-        renderMarkdown(bubble, reply || '_(no response)_');
+        if (reply) renderReply(bubble, reply, preset.view);
+        else renderMarkdown(bubble, '_(no response)_');
         if (reply) {
-          history.push({ role: 'user', content: text }, { role: 'assistant', content: reply });
+          const answer = { role: 'assistant', content: reply };
+          if (preset.view) answer.view = preset.view;
+          history.push({ role: 'user', content: text }, answer);
           saveHistory();
         }
         showContextUsage();
@@ -605,18 +917,240 @@
       chat.querySelectorAll('.msg').forEach((m) => m.remove());
       restoreHistory();
       setStatus('Chat restored.');
-      // If the model was reloaded empty, wait for that, then reload it
-      // with the restored chat so it remembers the conversation.
-      if (session || loading) {
-        Promise.resolve(loading)
-          .catch(() => {})
-          .then(() => {
-            if (session) { session.destroy(); session = null; }
-            return getSession();
-          })
-          .catch(() => setStatus('The model failed to load. Send a message to retry.', true));
+      // Reload the model with the restored chat so it remembers it.
+      reloadModel();
+    }
+
+    // Rebuild the model with the current settings and chat. Waits for any
+    // load in progress first, so two loads never race.
+    function reloadModel() {
+      if (!session && !loading) return false;
+      if (controller) controller.abort();
+      Promise.resolve(loading)
+        .catch(() => {})
+        .then(() => {
+          if (session) { session.destroy(); session = null; }
+          return getSession();
+        })
+        .catch(() => setStatus('The model failed to load. Send a message to retry.', true));
+      return true;
+    }
+
+    // ---------- Asking and rendering by mode ----------
+
+    // JSON modes pass a schema so the reply always matches it. If this
+    // Chrome rejects the schema, ask again without it.
+    async function askModel(s, text, preset, signal) {
+      if (!preset.schema) return s.prompt(text, { signal });
+      try {
+        return await s.prompt(text, { signal, responseConstraint: preset.schema });
+      } catch (err) {
+        if (err.name === 'AbortError' || err.name === 'QuotaExceededError') throw err;
+        console.warn('[nano] JSON schema not accepted, asking without it:', err);
+        return s.prompt(`${text}\n\nReply with only the JSON object described in your instructions.`, { signal });
       }
     }
+
+    function renderReply(el, content, view) {
+      if (view === 'eeat') {
+        const md = eeatMarkdown(content);
+        renderMarkdown(el, md || `The reply was not valid JSON. Here it is as sent:\n\n\`\`\`\n${content}\n\`\`\``);
+        return;
+      }
+      renderMarkdown(el, content);
+    }
+
+    function eeatMarkdown(raw) {
+      let d;
+      try {
+        d = JSON.parse(String(raw).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
+      } catch {
+        return null;
+      }
+      if (!d || typeof d !== 'object' || !d.scores || typeof d.scores !== 'object') return null;
+      const cell = (v) => String(v ?? '').replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ');
+      const nums = EEAT_DIMENSIONS.map(([k]) => Number(d.scores[k])).filter(Number.isFinite);
+      const avg = nums.length ? (nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(1) : '?';
+      return [
+        `**Verdict: ${cell(d.overall_verdict) || 'none given'}** (average score ${avg} out of 10)`,
+        '',
+        '| Dimension | Score | Reasoning |',
+        '|---|---|---|',
+        ...EEAT_DIMENSIONS.map(([k, label]) => `| ${label} | ${cell(d.scores[k])}/10 | ${cell(d.reasoning && d.reasoning[k])} |`),
+        '',
+        cell(d.critical_summary),
+        '',
+        '```json',
+        JSON.stringify(d, null, 2),
+        '```',
+      ].join('\n');
+    }
+
+    // ---------- Settings drawer ----------
+
+    const modeBtn = document.getElementById('mode-btn');
+    const modeName = document.getElementById('mode-name');
+    const emptyMode = document.getElementById('empty-mode');
+    const drawer = document.getElementById('settings');
+    const backdrop = document.getElementById('settings-backdrop');
+    const presetSel = document.getElementById('preset');
+    const presetDesc = document.getElementById('preset-desc');
+    const sysPromptEl = document.getElementById('sys-prompt');
+    const rulesEl = document.getElementById('custom-rules');
+    const meter = document.getElementById('prompt-meter');
+    const meterBar = meter.querySelector('.bar span');
+    const meterText = meter.querySelector('.meter-text');
+    const jsonNote = document.getElementById('json-note');
+    const identityEl = document.getElementById('identity-text');
+
+    let draft = null; // edits in progress while the drawer is open
+    let lastFocus = null;
+    let meterTimer = null;
+
+    function updateModeUI() {
+      const p = activePreset();
+      modeName.textContent = p.name;
+      modeBtn.setAttribute('aria-label', `Settings. Current mode: ${p.name}`);
+      modeBtn.title = 'Change mode and system prompt';
+      promptEl.placeholder = p.placeholder;
+      emptyMode.textContent = p.id === 'general' ? '' : `${p.name} mode: ${p.desc}`;
+    }
+
+    function fillPresetOptions() {
+      presetSel.textContent = '';
+      PRESETS.forEach((p) => {
+        const o = document.createElement('option');
+        o.value = p.id;
+        o.textContent = p.name + (typeof draft.edits[p.id] === 'string' ? ' (edited)' : '');
+        presetSel.appendChild(o);
+      });
+      presetSel.value = draft.preset;
+    }
+
+    function showDraftPreset() {
+      const p = presetById(draft.preset);
+      presetDesc.textContent = p.desc;
+      sysPromptEl.value = promptFor(p.id, draft.edits);
+      jsonNote.hidden = !p.schema;
+      updateMeter();
+    }
+
+    // Store the textarea as an edit, or drop the edit if it matches the default.
+    function captureDraftPrompt() {
+      const p = presetById(draft.preset);
+      if (sysPromptEl.value === p.prompt) delete draft.edits[p.id];
+      else draft.edits[p.id] = sysPromptEl.value;
+    }
+
+    function openSettings() {
+      draft = { preset: settings.preset, edits: { ...settings.edits }, rules: settings.rules };
+      identityEl.textContent = identityText();
+      rulesEl.value = draft.rules;
+      fillPresetOptions();
+      showDraftPreset();
+      lastFocus = document.activeElement;
+      backdrop.hidden = false;
+      drawer.hidden = false;
+      presetSel.focus();
+    }
+
+    function closeSettings() {
+      drawer.hidden = true;
+      backdrop.hidden = true;
+      draft = null;
+      clearTimeout(meterTimer);
+      if (lastFocus && lastFocus.focus) lastFocus.focus();
+    }
+
+    function applySettings() {
+      captureDraftPrompt();
+      draft.rules = rulesEl.value;
+      const before = composeSystemPrompt(settings);
+      const modeChanged = draft.preset !== settings.preset;
+      settings = { preset: draft.preset, edits: draft.edits, rules: draft.rules };
+      saveSettings();
+      closeSettings();
+      updateModeUI();
+      if (composeSystemPrompt(settings) === before) return;
+      const reloading = reloadModel();
+      const what = modeChanged ? `Mode set to ${activePreset().name}.` : 'Prompt updated.';
+      showToast(reloading ? `${what} Reloading the model...` : what, null, 4000);
+    }
+
+    function updateMeterSoon() {
+      clearTimeout(meterTimer);
+      meterTimer = setTimeout(updateMeter, 250);
+    }
+
+    // How much of the model's memory the full system prompt uses. Exact when
+    // a session can measure it, otherwise estimated at 4 characters a token.
+    async function updateMeter() {
+      if (!draft) return;
+      const text = composeSystemPrompt({ ...draft, rules: rulesEl.value });
+      let tokens = Math.round(text.length / 4);
+      let exact = false;
+      const measure = session && (session.measureContextUsage || session.measureInputUsage);
+      if (measure) {
+        try {
+          const n = await measure.call(session, text);
+          if (typeof n === 'number' && n > 0) { tokens = n; exact = true; }
+        } catch { /* fall back to the estimate */ }
+      }
+      if (!draft) return;
+      const win = session ? (session.contextWindow ?? session.inputQuota) : null;
+      const known = typeof win === 'number' && win > 0;
+      const max = known ? win : 9216;
+      const pct = Math.min(100, Math.round((tokens / max) * 100));
+      meterBar.style.width = `${pct}%`;
+      meter.classList.toggle('warn', pct >= 40 && pct < 70);
+      meter.classList.toggle('bad', pct >= 70);
+      const size = `${exact ? '' : 'About '}${tokens.toLocaleString()} tokens`;
+      const share = known
+        ? `${pct}% of the model's ${max.toLocaleString()} token memory`
+        : `about ${pct}% of a typical ${max.toLocaleString()} token memory`;
+      const advice = pct >= 70 ? ' Too big for most uses. Trim it.' : pct >= 40 ? ' Leaves less room for long text.' : '';
+      meterText.textContent = `${size}, ${share}.${advice}`;
+    }
+
+    modeBtn.addEventListener('click', openSettings);
+    document.getElementById('settings-close').addEventListener('click', closeSettings);
+    document.getElementById('settings-cancel').addEventListener('click', closeSettings);
+    document.getElementById('settings-apply').addEventListener('click', applySettings);
+    backdrop.addEventListener('click', closeSettings);
+
+    document.getElementById('settings-reset').addEventListener('click', () => {
+      delete draft.edits[draft.preset];
+      fillPresetOptions();
+      showDraftPreset();
+      sysPromptEl.focus();
+    });
+
+    presetSel.addEventListener('change', () => {
+      captureDraftPrompt();
+      draft.preset = presetSel.value;
+      fillPresetOptions();
+      showDraftPreset();
+    });
+
+    sysPromptEl.addEventListener('input', () => {
+      const hadEdit = typeof draft.edits[draft.preset] === 'string';
+      captureDraftPrompt();
+      if (hadEdit !== (typeof draft.edits[draft.preset] === 'string')) fillPresetOptions();
+      updateMeterSoon();
+    });
+
+    rulesEl.addEventListener('input', updateMeterSoon);
+
+    // Escape closes. Tab stays inside the drawer while it's open.
+    drawer.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); closeSettings(); return; }
+      if (e.key !== 'Tab') return;
+      const items = [...drawer.querySelectorAll('button, select, textarea, summary')].filter((el) => !el.disabled && el.offsetParent !== null);
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
 
     // ---------- Input ----------
 
@@ -913,9 +1447,10 @@
     function restoreHistory() {
       history.forEach((m) => {
         if (m.role === 'user') addMessage('user', m.content);
-        else renderMarkdown(addMessage('ai'), m.content);
+        else renderReply(addMessage('ai'), m.content, m.view);
       });
     }
+    updateModeUI();
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', restoreHistory);
     } else {

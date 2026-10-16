@@ -9,6 +9,8 @@ A tiny chat page that talks to Gemini Nano, the model built into Chrome. Everyth
 - Onboarding on load. The page checks what's missing and shows the fix: update Chrome, turn on flags, download the model, or open in its own tab. If the model is already on disk, it loads in the background so the first reply is fast.
 - Markdown replies, sanitized with DOMPurify. Code blocks get a copy button.
 - No images or embeds in replies, so the page never contacts outside servers on its own.
+- Modes with an editable system prompt: General chat, Bias Detective, YMYL Fact Checker, E-E-A-T Audit, and Propaganda Archetypes. Add custom rules to any mode. A meter shows how much of the model's memory the prompt uses. A few locked lines always go first, so the model knows what it is and where it runs.
+- E-E-A-T Audit forces JSON output with a schema, then shows it as a score table with the raw JSON below.
 - Chats are saved in your browser and survive a reload. The saved chat is fed back to the model, so follow-up questions still work. Nothing is stored anywhere else.
 - Multiline input: Enter sends, Shift+Enter adds a line.
 - Stop button, New chat button, and a context meter.
