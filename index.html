@@ -203,7 +203,7 @@
       color: var(--bg);
       font-size: 14px;
       box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
-      z-index: 10;
+      z-index: 30; /* above the settings drawer */
     }
     .toast[hidden] { display: none; }
     .toast button {
@@ -278,6 +278,46 @@
     .drawer-foot { display: flex; gap: 8px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--border); }
     .drawer-foot .spacer { flex: 1; }
     .drawer-foot .primary { font-size: 14px; padding: 8px 18px; }
+    .drawer [hidden] { display: none !important; } /* flex rules must not override hidden */
+    .drawer button:disabled { opacity: 0.45; cursor: default; }
+    .drawer h3.section {
+      margin: 18px 0 2px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+    .drawer h3.section:first-child { margin-top: 0; }
+    .drawer .row { display: flex; gap: 8px; align-items: center; }
+    .drawer .row select, .drawer .row input { flex: 1; min-width: 0; width: auto; }
+    .drawer .row button { flex: none; font-size: 14px; padding: 7px 12px; }
+    .drawer .row .primary { padding: 7px 14px; }
+    .drawer input[type="text"] {
+      font: inherit;
+      font-size: 14px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+    .drawer input[type="text"]:focus { outline: none; border-color: var(--accent); }
+    .drawer .stack { display: flex; flex-direction: column; gap: 6px; }
+    #schema { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+    .field-error { margin: 0; font-size: 12.5px; color: var(--error); }
+    .link-btn {
+      align-self: flex-start;
+      border: none;
+      background: none;
+      padding: 0;
+      color: var(--accent);
+      font-size: 13px;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    .choice { border: none; margin: 12px 0 0; padding: 0; display: flex; gap: 18px; flex-wrap: wrap; }
+    .choice legend { font-size: 13px; font-weight: 600; padding: 0; margin-bottom: 6px; }
+    .drawer-body .choice label { margin: 0; font-weight: 400; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; }
 
     /* Onboarding card */
     .card {
@@ -355,29 +395,59 @@
       <button id="settings-close" class="icon-btn" type="button" aria-label="Close settings">&times;</button>
     </div>
     <div class="drawer-body">
-      <label for="preset">Mode</label>
-      <select id="preset"></select>
-      <p id="preset-desc" class="field-hint"></p>
+      <h3 class="section">System prompt</h3>
 
-      <label for="sys-prompt">System prompt</label>
+      <label for="preset">Saved prompts</label>
+      <div class="row">
+        <select id="preset"></select>
+        <button id="preset-new" class="secondary" type="button">New</button>
+        <button id="preset-delete" class="secondary" type="button">Delete</button>
+      </div>
+      <div id="new-row" class="row" hidden>
+        <input id="new-name" type="text" maxlength="60" placeholder="Name, like Editor or Spanish tutor" aria-label="Name for the new prompt">
+        <button id="new-save" class="primary" type="button">Create</button>
+        <button id="new-cancel" class="secondary" type="button">Cancel</button>
+      </div>
+      <p id="new-error" class="field-error" role="alert" hidden></p>
+
+      <label for="sys-prompt">Prompt</label>
       <textarea id="sys-prompt" spellcheck="false"></textarea>
       <div id="prompt-meter" class="meter" aria-live="polite">
         <div class="bar"><span></span></div>
         <div class="meter-text"></div>
       </div>
-      <p id="json-note" class="field-hint" hidden>This mode always replies in JSON that matches a fixed format. The chat shows it as a score table, with the raw JSON below.</p>
-
-      <label for="custom-rules">Custom rules <span class="opt">(optional)</span></label>
-      <textarea id="custom-rules" rows="4" placeholder="Extra rules added to the end of the prompt, in any mode."></textarea>
+      <button id="prompt-reset" class="link-btn" type="button" hidden>Restore the default prompt</button>
 
       <details class="locked">
         <summary>Always included (locked)</summary>
-        <p>These lines go first in every mode, so the model knows what it is and where it runs.</p>
+        <p>These lines go first in every prompt, so the model knows what it is and where it runs.</p>
         <p id="identity-text"></p>
       </details>
+
+      <h3 class="section">Replies</h3>
+
+      <fieldset class="choice">
+        <legend>Format</legend>
+        <label><input type="radio" name="format" value="text"> Text</label>
+        <label><input type="radio" name="format" value="json"> JSON</label>
+      </fieldset>
+      <p class="field-hint">Saved with the prompt above.</p>
+      <div id="schema-wrap" class="stack" hidden>
+        <label for="schema">JSON schema</label>
+        <textarea id="schema" rows="9" spellcheck="false"></textarea>
+        <p class="field-hint">Chrome forces every reply to match this schema.</p>
+        <p id="schema-error" class="field-error" role="alert" hidden></p>
+      </div>
+
+      <label for="sampling">Creativity</label>
+      <select id="sampling"></select>
+      <p class="field-hint">Some Chrome versions only allow Most predictable. If Chrome refuses a level, the page falls back and tells you. <span id="sampling-now"></span></p>
+
+      <label for="language">Reply language</label>
+      <select id="language"></select>
+      <p class="field-hint">The languages Chrome's built-in model supports.</p>
     </div>
     <div class="drawer-foot">
-      <button id="settings-reset" class="secondary" type="button">Reset this mode</button>
       <span class="spacer"></span>
       <button id="settings-cancel" class="secondary" type="button">Cancel</button>
       <button id="settings-apply" class="primary" type="button">Apply</button>
@@ -420,10 +490,10 @@
     toast.addEventListener('mouseenter', () => clearTimeout(toastTimer));
     toast.addEventListener('mouseleave', () => { toastTimer = setTimeout(hideToast, 3000); });
 
-    // ---------- Modes and system prompt ----------
+    // ---------- Settings: system prompt and chat options ----------
 
-    // Locked: always goes first in every mode. Small models guess about
-    // themselves, so this states the facts plainly.
+    // Locked: always goes first. Small models guess about themselves,
+    // so this states the facts plainly.
     function identityText() {
       const date = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
       return [
@@ -437,177 +507,83 @@
       ].join(' ');
     }
 
-    const EEAT_DIMENSIONS = [
-      ['authorship', 'Authorship and expertise'],
-      ['citations', 'Citation quality'],
-      ['effort', 'Content effort'],
-      ['originality', 'Originality'],
-      ['intent', 'Page intent'],
-      ['writing', 'Writing quality'],
-    ];
+    const DEFAULT_PROMPT = [
+      'You are a helpful assistant inside a chat page called Local Gemini Nano Chat.',
+      'Keep answers clear and reasonably short. Use Markdown when it helps readability.',
+    ].join(' ');
 
-    const EEAT_SCHEMA = {
+    // Starting point when someone switches a prompt to JSON replies.
+    const EXAMPLE_SCHEMA = JSON.stringify({
       type: 'object',
       properties: {
-        scores: {
-          type: 'object',
-          properties: Object.fromEntries(EEAT_DIMENSIONS.map(([k]) => [k, { type: 'integer' }])),
-          required: EEAT_DIMENSIONS.map(([k]) => k),
-        },
-        reasoning: {
-          type: 'object',
-          properties: Object.fromEntries(EEAT_DIMENSIONS.map(([k]) => [k, { type: 'string' }])),
-          required: EEAT_DIMENSIONS.map(([k]) => k),
-        },
-        critical_summary: { type: 'string' },
-        overall_verdict: { type: 'string', enum: ['Pass', 'Fail', 'Needs Improvement'] },
+        answer: { type: 'string' },
+        confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
       },
-      required: ['scores', 'reasoning', 'critical_summary', 'overall_verdict'],
-    };
+      required: ['answer', 'confidence'],
+    }, null, 2);
 
-    // Adapted from BiasHunt and trimmed to fit Gemini Nano's small memory.
-    const PRESETS = [
-      {
-        id: 'general',
-        name: 'General chat',
-        desc: 'Everyday questions and help.',
-        placeholder: 'Ask something...',
-        prompt: [
-          'You are a helpful assistant inside a chat page called Local Gemini Nano Chat.',
-          'Keep answers clear and reasonably short. Use Markdown when it helps readability.',
-        ].join(' '),
-      },
-      {
-        id: 'bias',
-        name: 'Bias Detective',
-        desc: 'Finds bias, rhetorical devices, and propaganda tactics in text you paste.',
-        placeholder: 'Paste text to check for bias...',
-        prompt: `You are Bias Detective. The user pastes text. Find directed bias, manipulative rhetorical devices, and propaganda tactics in it, even when they are disguised or seem neutral. Only flag tactics the author is actually using, not ones the text merely discusses.
-
-Bias types:
-1. Statistical bias: data or methods that systematically favor certain outcomes.
-2. Cultural bias: judgments shaped by norms and experience, such as gender, race, age, religion, class, politics, or geography.
-3. Cognitive bias: systematic errors in reasoning or judgment.
-
-Common tactics to look for: ad hominem, appeal to fear, appeal to authority, bandwagon, black-and-white fallacy, cherry picking, euphemism, dysphemism, exaggeration, framing, glittering generalities, guilt by association, half-truth, loaded language, minimization, name-calling, non sequitur, red herring, scapegoating, straw man, unstated assumption, whataboutism. Others count too.
-
-Rules:
-- Avoid your own bias. Consider the context, the author's intent, and the audience.
-- Label sarcasm, trolling, or humor when you can tell.
-- Quote the exact words that show each tactic.
-- If you find nothing, say "No bias detected."
-
-Output a Markdown table with these columns:
-Quote | Tactic or bias | Type | Confidence (Low/Med/High) | Explanation
-
-Below the table:
-1. A short overview of the text and your findings.
-2. The likely agenda, if one is apparent.
-3. Whether the text is a problem, and a calm way to respond.
-4. A neutral rewrite of the most biased sentence.`,
-      },
-      {
-        id: 'ymyl',
-        name: 'YMYL Fact Checker',
-        desc: 'Pulls out claims, stats, and sources, and flags weak evidence.',
-        placeholder: 'Paste text to fact check...',
-        prompt: `You are a YMYL fact checker. YMYL means "Your Money or Your Life": health, finance, legal, and safety topics where bad information can hurt people. The user pastes text. Break it into atomic claims and judge the evidence behind each one. You cannot browse the web, so judge how well each claim is supported, not whether it is true.
-
-Extract:
-1. Claims: definite statements of fact.
-2. Statistics: specific numbers.
-3. Citations: named studies, laws, or authorities.
-4. Vague sources: phrases like "studies show" or "experts agree" with no specific source.
-
-Quality signals:
-- Freshness: recent dates, or outdated references?
-- Authority: specific, credible sources named?
-- Precision: specific numbers ("47%") or vague words ("many")?
-
-Rules:
-- Be very skeptical.
-- Flag any medical, financial, or legal claim without a specific citation.
-- Point out weasel words that hide a lack of evidence.
-
-Output a Markdown table with these columns:
-Type | Exact text | Signal | Assessment
-
-Then give a one paragraph verdict on how trustworthy the text is.`,
-      },
-      {
-        id: 'eeat',
-        name: 'E-E-A-T Audit (JSON)',
-        desc: 'Scores content on Google E-E-A-T. Always replies in JSON.',
-        placeholder: 'Paste content to audit...',
-        schema: EEAT_SCHEMA,
-        view: 'eeat',
-        prompt: `You are a strict, honest auditor of Google's E-E-A-T guidelines: Experience, Expertise, Authoritativeness, and Trustworthiness. The user pastes content. Score it from 1 to 10 on each dimension and explain each score briefly.
-
-Dimensions:
-- authorship: Is the author clear, verifiable, and expert? (1 = anonymous, 10 = verified world class expert)
-- citations: Are claims backed by primary sources? (1 = none, 10 = scientific or legal primary sources)
-- effort: How hard is this to replicate? (1 = generic or spun, 10 = original research, data, or tools)
-- originality: Does it add new information? (1 = rehash, 10 = new data or perspective)
-- intent: Why does it exist? (1 = deceptive or SEO only, 10 = genuinely helpful)
-- writing: Readability and clarity. (1 = fluff, 10 = professional and concise)
-
-Reply with JSON in this shape:
-{"scores": {"authorship": 0, "citations": 0, "effort": 0, "originality": 0, "intent": 0, "writing": 0}, "reasoning": {"authorship": "", "citations": "", "effort": "", "originality": "", "intent": "", "writing": ""}, "critical_summary": "2 or 3 sentences on the biggest weakness.", "overall_verdict": "Pass, Fail, or Needs Improvement"}`,
-      },
-      {
-        id: 'propaganda',
-        name: 'Propaganda Archetypes',
-        desc: 'Classifies text into common propaganda patterns and suggests a counter.',
-        placeholder: 'Paste text to classify...',
-        prompt: `You are a propaganda pattern classifier. The user pastes text. Identify which known propaganda archetypes it uses, if any.
-
-Archetypes:
-1. Firehose of Falsehood: many rapid claims with no concern for consistency. Counter: focus on one or two checkable core claims.
-2. Limited Hangout + Whataboutism: admits a small wrong, then deflects to the critic's flaws. Counter: accept the admission, return to the main issue.
-3. Soft Relativism ("nuance laundering"): uses "it's complicated" or selective positives to soften serious harms. Counter: separate real complexity from false balance.
-4. Moral Equivalence Flip: treats very different actions as the same. Counter: compare scale and severity.
-5. Victimhood Inversion: the accused side claims to be the victim. Counter: address the facts regardless of motives.
-6. Narrative Anchoring: plants a false premise early, often in a loaded question. Counter: reject the frame and restate the real claim.
-7. Emotional Hijacking: triggers fear, outrage, or tribal loyalty before reasoning. Counter: name the emotion, return to facts.
-8. Authority Laundering: uses credentials or "experts agree" instead of evidence. Counter: ask for the specific source.
-9. Strategic Ambiguity: vague wording that allows deniability or dog whistles. Counter: ask for concrete definitions.
-10. Gaslighting Cascade: denies documented events and floods counter narratives. Counter: anchor to dated primary sources.
-11. Perpetual Deferral: "now is not the time" to criticize, with no end date. Counter: harms happening now need critique now.
-12. Term Hijack: uses words like "psyop" or "limited hangout" to dismiss critics. Counter: judge the evidence, not the label.
-
-Shield words to watch: "nuance," "context," "not black and white," "both sides," "balanced view," "simplistic," "reductive."
-
-Confidence: High = 3 or more supporting sentences. Medium = 1 or 2. Low = weak or ambiguous signs.
-
-Output a Markdown table with these columns:
-Archetype | Confidence | Severity (Critical/High/Medium/Low) | Key quote | Why it applies
-
-Then:
-1. The primary archetype, or "No propaganda archetype detected."
-2. How the archetypes work together, if more than one appears.
-3. Sophistication: Amateur, Intermediate, or Professional.
-4. A short counter script: acknowledge without conceding, ask for primary sources, name what is left out, and force specifics.`,
-      },
+    // Chrome's samplingMode values.
+    const SAMPLING_MODES = [
+      ['auto', 'Auto (recommended)'],
+      ['most-predictable', 'Most predictable'],
+      ['predictable', 'Predictable'],
+      ['slightly-predictable', 'Slightly predictable'],
+      ['balanced', 'Balanced'],
+      ['slightly-creative', 'Slightly creative'],
+      ['creative', 'Creative'],
+      ['most-creative', 'Most creative'],
     ];
 
-    const presetById = (id) => PRESETS.find((p) => p.id === id) || PRESETS[0];
+    // The languages Chrome's built-in model supports.
+    const LANGUAGES = [
+      ['en', 'English'],
+      ['es', 'Spanish'],
+      ['ja', 'Japanese'],
+      ['de', 'German'],
+      ['fr', 'French'],
+    ];
 
-    const SETTINGS_KEY = 'gemini-nano-chat:settings:v1';
+    const labelOf = (list, value) => (list.find(([v]) => v === value) || [value, value])[1];
+
+    // Settings shape:
+    // { active, presets: [{ id, name, prompt, format: 'text' | 'json', schema }], sampling, language }
+    // A preset holds a system prompt plus its reply format. Creativity and
+    // language apply to every prompt.
+    const SETTINGS_KEY = 'gemini-nano-chat:settings:v2';
+    const defaultPreset = () => ({ id: 'default', name: 'Default', prompt: DEFAULT_PROMPT, format: 'text', schema: '' });
+    const defaultSettings = () => ({ active: 'default', presets: [defaultPreset()], sampling: 'auto', language: 'en' });
     let settings = loadSettings();
+    let activeSampling = null; // the creativity level Chrome actually accepted
+    let languageApplied = true; // whether Chrome accepted the language hint
+
+    function cleanPreset(p) {
+      if (!p || typeof p !== 'object' || typeof p.id !== 'string' || typeof p.prompt !== 'string') return null;
+      return {
+        id: p.id,
+        name: typeof p.name === 'string' && p.name.trim() ? p.name.trim().slice(0, 60) : 'Untitled',
+        prompt: p.prompt,
+        format: p.format === 'json' ? 'json' : 'text',
+        schema: typeof p.schema === 'string' ? p.schema : '',
+      };
+    }
 
     function loadSettings() {
-      const fallback = { preset: 'general', edits: {}, rules: '' };
       try {
-        const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
-        const edits = {};
-        if (s.edits && typeof s.edits === 'object') {
-          for (const [k, v] of Object.entries(s.edits)) {
-            if (typeof v === 'string' && PRESETS.some((p) => p.id === k)) edits[k] = v;
-          }
-        }
-        return { preset: presetById(s.preset).id, edits, rules: typeof s.rules === 'string' ? s.rules : '' };
+        localStorage.removeItem('gemini-nano-chat:settings:v1'); // older settings format
+        const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');
+        if (!s || typeof s !== 'object') return defaultSettings();
+        const presets = (Array.isArray(s.presets) ? s.presets : []).map(cleanPreset).filter(Boolean);
+        const def = presets.find((p) => p.id === 'default');
+        if (def) def.name = 'Default';
+        else presets.unshift(defaultPreset());
+        return {
+          active: presets.some((p) => p.id === s.active) ? s.active : 'default',
+          presets,
+          sampling: SAMPLING_MODES.some(([v]) => v === s.sampling) ? s.sampling : 'auto',
+          language: LANGUAGES.some(([v]) => v === s.language) ? s.language : 'en',
+        };
       } catch {
-        return fallback;
+        return defaultSettings();
       }
     }
 
@@ -615,13 +591,23 @@ Then:
       try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* storage blocked */ }
     }
 
-    const activePreset = () => presetById(settings.preset);
-    const promptFor = (id, edits) => (typeof edits[id] === 'string' ? edits[id] : presetById(id).prompt);
+    const presetIn = (cfg, id) => cfg.presets.find((p) => p.id === id) || cfg.presets[0];
+    const activePreset = () => presetIn(settings, settings.active);
 
-    function composeSystemPrompt({ preset, edits, rules }) {
-      const parts = [identityText(), promptFor(preset, edits)];
-      if (rules.trim()) parts.push(`Additional custom rules:\n${rules.trim()}`);
-      return parts.join('\n\n');
+    // A schema must be a JSON object. Returns null if it isn't.
+    function parseSchema(text) {
+      try {
+        const v = JSON.parse(text);
+        return v && typeof v === 'object' && !Array.isArray(v) ? v : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function composeSystemPrompt(cfg) {
+      const parts = [identityText(), presetIn(cfg, cfg.active).prompt.trim()];
+      if (cfg.language && cfg.language !== 'en') parts.push(`Always reply in ${labelOf(LANGUAGES, cfg.language)}.`);
+      return parts.filter(Boolean).join('\n\n');
     }
 
     let session = null;
@@ -771,9 +757,12 @@ Then:
         });
       };
 
-      // Chrome with speculative decoding (MTP) requires 'most-predictable'.
-      // Other Chromes may not accept samplingMode, so retry without it.
-      const createWith = (turns) => {
+      // Try the chosen creativity and language first, then fall back step by
+      // step. Chrome with speculative decoding (MTP) only accepts
+      // 'most-predictable', and some Chromes reject samplingMode or the
+      // language hint entirely.
+      const createWith = async (turns) => {
+        const lang = settings.language;
         const base = {
           initialPrompts: [
             { role: 'system', content: composeSystemPrompt(settings) },
@@ -781,11 +770,37 @@ Then:
           ],
           monitor,
         };
-        return LanguageModel.create({ ...base, samplingMode: 'most-predictable' }).catch((err) => {
-          if (err.name === 'QuotaExceededError') throw err;
-          console.warn('[nano] create with samplingMode failed, retrying without it:', err);
-          return LanguageModel.create(base);
-        });
+        const withLang = {
+          ...base,
+          expectedInputs: [{ type: 'text', languages: lang === 'en' ? ['en'] : ['en', lang] }], // system prompt is English
+          expectedOutputs: [{ type: 'text', languages: [lang] }],
+        };
+        const wanted = settings.sampling === 'auto' ? 'most-predictable' : settings.sampling;
+        const attempts = [
+          { ...withLang, samplingMode: wanted },
+          { ...withLang, samplingMode: 'most-predictable' },
+          withLang,
+          { ...base, samplingMode: 'most-predictable' },
+          base,
+        ];
+        const tried = new Set();
+        let lastErr;
+        for (const opts of attempts) {
+          const key = `${!!opts.expectedInputs}|${opts.samplingMode || ''}`;
+          if (tried.has(key)) continue;
+          tried.add(key);
+          try {
+            const s = await LanguageModel.create(opts);
+            activeSampling = opts.samplingMode || null;
+            languageApplied = !!opts.expectedInputs;
+            return s;
+          } catch (err) {
+            if (err.name === 'QuotaExceededError') throw err;
+            lastErr = err;
+            console.warn('[nano] create failed, trying a fallback:', opts.samplingMode || 'no samplingMode', opts.expectedInputs ? 'with language' : 'no language', err);
+          }
+        }
+        throw lastErr;
       };
 
       // Feed the saved chat back in so follow-up questions still work.
@@ -811,6 +826,7 @@ Then:
             addMessage('note', 'This chat is long, so the oldest messages are being dropped from the model\'s memory. Start a new chat for a clean slate.');
           });
           setStatus(`Ready. Loaded in ${Math.round((Date.now() - start) / 1000)}s.${usageText(s)}`);
+          noteFallbacks();
           return s;
         })
         .finally(() => {
@@ -851,18 +867,19 @@ Then:
       const bubble = addMessage('ai pending', session ? 'Thinking...' : 'Loading the model, then thinking...');
       controller = new AbortController();
       setBusy(true);
-      const preset = activePreset(); // the mode at send time decides how the reply renders
+      const preset = activePreset(); // the prompt at send time decides the reply format
 
       try {
         const s = await sessionReady;
         bubble.textContent = 'Thinking...';
         const reply = await askModel(s, text, preset, controller.signal);
         bubble.classList.remove('pending');
-        if (reply) renderReply(bubble, reply, preset.view);
+        const view = preset.format === 'json' ? 'json' : undefined;
+        if (reply) renderReply(bubble, reply, view);
         else renderMarkdown(bubble, '_(no response)_');
         if (reply) {
           const answer = { role: 'assistant', content: reply };
-          if (preset.view) answer.view = preset.view;
+          if (view) answer.view = view;
           history.push({ role: 'user', content: text }, answer);
           saveHistory();
         }
@@ -936,117 +953,135 @@ Then:
       return true;
     }
 
-    // ---------- Asking and rendering by mode ----------
+    // ---------- Asking and rendering ----------
 
-    // JSON modes pass a schema so the reply always matches it. If this
-    // Chrome rejects the schema, ask again without it.
+    // JSON replies pass the schema so every reply matches it. If this
+    // Chrome rejects the schema, ask again with the schema in the text.
     async function askModel(s, text, preset, signal) {
-      if (!preset.schema) return s.prompt(text, { signal });
+      const schema = preset.format === 'json' ? parseSchema(preset.schema) : null;
+      if (!schema) return s.prompt(text, { signal });
       try {
-        return await s.prompt(text, { signal, responseConstraint: preset.schema });
+        return await s.prompt(text, { signal, responseConstraint: schema });
       } catch (err) {
         if (err.name === 'AbortError' || err.name === 'QuotaExceededError') throw err;
         console.warn('[nano] JSON schema not accepted, asking without it:', err);
-        return s.prompt(`${text}\n\nReply with only the JSON object described in your instructions.`, { signal });
+        return s.prompt(`${text}\n\nReply with only a JSON object that matches this schema:\n${JSON.stringify(schema)}`, { signal });
       }
     }
 
     function renderReply(el, content, view) {
-      if (view === 'eeat') {
-        const md = eeatMarkdown(content);
-        renderMarkdown(el, md || `The reply was not valid JSON. Here it is as sent:\n\n\`\`\`\n${content}\n\`\`\``);
+      if (view === 'json' || view === 'eeat') {
+        const raw = String(content).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+        let pretty = null;
+        try { pretty = JSON.stringify(JSON.parse(raw), null, 2); } catch { /* not JSON */ }
+        renderMarkdown(el, pretty
+          ? `\`\`\`json\n${pretty}\n\`\`\``
+          : `The reply was not valid JSON. Here it is as sent:\n\n\`\`\`\n${content}\n\`\`\``);
         return;
       }
       renderMarkdown(el, content);
     }
 
-    function eeatMarkdown(raw) {
-      let d;
-      try {
-        d = JSON.parse(String(raw).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
-      } catch {
-        return null;
+    // Tell the person once if Chrome refused a setting.
+    let lastFallbackNote = '';
+    function noteFallbacks() {
+      const notes = [];
+      if (settings.sampling !== 'auto' && activeSampling !== settings.sampling) {
+        const using = activeSampling ? labelOf(SAMPLING_MODES, activeSampling) : 'its default';
+        notes.push(`Chrome didn't accept "${labelOf(SAMPLING_MODES, settings.sampling)}" creativity, so it's using ${using}.`);
       }
-      if (!d || typeof d !== 'object' || !d.scores || typeof d.scores !== 'object') return null;
-      const cell = (v) => String(v ?? '').replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ');
-      const nums = EEAT_DIMENSIONS.map(([k]) => Number(d.scores[k])).filter(Number.isFinite);
-      const avg = nums.length ? (nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(1) : '?';
-      return [
-        `**Verdict: ${cell(d.overall_verdict) || 'none given'}** (average score ${avg} out of 10)`,
-        '',
-        '| Dimension | Score | Reasoning |',
-        '|---|---|---|',
-        ...EEAT_DIMENSIONS.map(([k, label]) => `| ${label} | ${cell(d.scores[k])}/10 | ${cell(d.reasoning && d.reasoning[k])} |`),
-        '',
-        cell(d.critical_summary),
-        '',
-        '```json',
-        JSON.stringify(d, null, 2),
-        '```',
-      ].join('\n');
+      if (settings.language !== 'en' && !languageApplied) {
+        notes.push(`Chrome didn't accept the ${labelOf(LANGUAGES, settings.language)} language setting. The prompt still asks for it.`);
+      }
+      const msg = notes.join(' ');
+      if (msg && msg !== lastFallbackNote) showToast(msg, null, 9000);
+      lastFallbackNote = msg;
     }
 
     // ---------- Settings drawer ----------
 
-    const modeBtn = document.getElementById('mode-btn');
-    const modeName = document.getElementById('mode-name');
-    const emptyMode = document.getElementById('empty-mode');
-    const drawer = document.getElementById('settings');
-    const backdrop = document.getElementById('settings-backdrop');
-    const presetSel = document.getElementById('preset');
-    const presetDesc = document.getElementById('preset-desc');
-    const sysPromptEl = document.getElementById('sys-prompt');
-    const rulesEl = document.getElementById('custom-rules');
-    const meter = document.getElementById('prompt-meter');
+    const $ = (id) => document.getElementById(id);
+    const modeBtn = $('mode-btn');
+    const modeName = $('mode-name');
+    const emptyMode = $('empty-mode');
+    const drawer = $('settings');
+    const backdrop = $('settings-backdrop');
+    const presetSel = $('preset');
+    const deleteBtn = $('preset-delete');
+    const newRow = $('new-row');
+    const newName = $('new-name');
+    const newError = $('new-error');
+    const sysPromptEl = $('sys-prompt');
+    const promptResetBtn = $('prompt-reset');
+    const formatRadios = [...document.querySelectorAll('input[name="format"]')];
+    const schemaWrap = $('schema-wrap');
+    const schemaEl = $('schema');
+    const schemaError = $('schema-error');
+    const samplingSel = $('sampling');
+    const samplingNow = $('sampling-now');
+    const languageSel = $('language');
+    const meter = $('prompt-meter');
     const meterBar = meter.querySelector('.bar span');
     const meterText = meter.querySelector('.meter-text');
-    const jsonNote = document.getElementById('json-note');
-    const identityEl = document.getElementById('identity-text');
+    const identityEl = $('identity-text');
 
-    let draft = null; // edits in progress while the drawer is open
+    let draft = null; // a copy of settings while the drawer is open
     let lastFocus = null;
     let meterTimer = null;
+    const draftPreset = () => presetIn(draft, draft.active);
 
     function updateModeUI() {
       const p = activePreset();
-      modeName.textContent = p.name;
-      modeBtn.setAttribute('aria-label', `Settings. Current mode: ${p.name}`);
-      modeBtn.title = 'Change mode and system prompt';
-      promptEl.placeholder = p.placeholder;
-      emptyMode.textContent = p.id === 'general' ? '' : `${p.name} mode: ${p.desc}`;
+      const custom = p.id !== 'default';
+      modeName.textContent = custom ? p.name : 'Settings';
+      modeBtn.setAttribute('aria-label', custom ? `Settings. Current prompt: ${p.name}` : 'Settings');
+      modeBtn.title = 'System prompt and chat options';
+      emptyMode.textContent = custom ? `Using your saved prompt: ${p.name}.` : '';
     }
 
-    function fillPresetOptions() {
-      presetSel.textContent = '';
-      PRESETS.forEach((p) => {
+    function fillSelect(sel, items, value) {
+      sel.textContent = '';
+      items.forEach(([v, label]) => {
         const o = document.createElement('option');
-        o.value = p.id;
-        o.textContent = p.name + (typeof draft.edits[p.id] === 'string' ? ' (edited)' : '');
-        presetSel.appendChild(o);
+        o.value = v;
+        o.textContent = label;
+        sel.appendChild(o);
       });
-      presetSel.value = draft.preset;
+      sel.value = value;
+    }
+
+    function fillPresetSelect() {
+      fillSelect(presetSel, draft.presets.map((p) => [p.id, p.name]), draft.active);
+      deleteBtn.disabled = draft.active === 'default';
     }
 
     function showDraftPreset() {
-      const p = presetById(draft.preset);
-      presetDesc.textContent = p.desc;
-      sysPromptEl.value = promptFor(p.id, draft.edits);
-      jsonNote.hidden = !p.schema;
+      const p = draftPreset();
+      sysPromptEl.value = p.prompt;
+      formatRadios.forEach((r) => { r.checked = r.value === p.format; });
+      schemaWrap.hidden = p.format !== 'json';
+      schemaEl.value = p.schema;
+      schemaError.hidden = true;
+      promptResetBtn.hidden = !(p.id === 'default' && p.prompt !== DEFAULT_PROMPT);
       updateMeter();
     }
 
-    // Store the textarea as an edit, or drop the edit if it matches the default.
-    function captureDraftPrompt() {
-      const p = presetById(draft.preset);
-      if (sysPromptEl.value === p.prompt) delete draft.edits[p.id];
-      else draft.edits[p.id] = sysPromptEl.value;
+    function hideNewRow() {
+      newRow.hidden = true;
+      newError.hidden = true;
+      newName.value = '';
     }
 
     function openSettings() {
-      draft = { preset: settings.preset, edits: { ...settings.edits }, rules: settings.rules };
+      draft = JSON.parse(JSON.stringify(settings));
       identityEl.textContent = identityText();
-      rulesEl.value = draft.rules;
-      fillPresetOptions();
+      fillPresetSelect();
+      fillSelect(samplingSel, SAMPLING_MODES, draft.sampling);
+      fillSelect(languageSel, LANGUAGES, draft.language);
+      samplingNow.textContent = session
+        ? `Chrome is using: ${activeSampling ? labelOf(SAMPLING_MODES, activeSampling) : 'its default'}.`
+        : '';
+      hideNewRow();
       showDraftPreset();
       lastFocus = document.activeElement;
       backdrop.hidden = false;
@@ -1063,18 +1098,60 @@ Then:
     }
 
     function applySettings() {
-      captureDraftPrompt();
-      draft.rules = rulesEl.value;
-      const before = composeSystemPrompt(settings);
-      const modeChanged = draft.preset !== settings.preset;
-      settings = { preset: draft.preset, edits: draft.edits, rules: draft.rules };
+      const p = draftPreset();
+      if (p.format === 'json' && !parseSchema(p.schema)) {
+        schemaError.textContent = 'This schema is not valid JSON. Fix it, or switch the format to Text.';
+        schemaError.hidden = false;
+        schemaEl.focus();
+        return;
+      }
+      draft.sampling = samplingSel.value;
+      draft.language = languageSel.value;
+      // Format and schema apply per message. The rest needs a model reload.
+      const sig = (c) => JSON.stringify([composeSystemPrompt(c), c.sampling, c.language]);
+      const needsReload = sig(draft) !== sig(settings);
+      settings = draft;
       saveSettings();
       closeSettings();
       updateModeUI();
-      if (composeSystemPrompt(settings) === before) return;
-      const reloading = reloadModel();
-      const what = modeChanged ? `Mode set to ${activePreset().name}.` : 'Prompt updated.';
-      showToast(reloading ? `${what} Reloading the model...` : what, null, 4000);
+      lastFallbackNote = '';
+      const reloading = needsReload && reloadModel();
+      showToast(reloading ? 'Settings saved. Reloading the model...' : 'Settings saved.', null, 3500);
+    }
+
+    function createPreset() {
+      const name = newName.value.trim();
+      const fail = (msg) => { newError.textContent = msg; newError.hidden = false; newName.focus(); };
+      if (!name) return fail('Give it a name.');
+      if (draft.presets.some((p) => p.name.toLowerCase() === name.toLowerCase())) return fail('You already have a prompt with that name.');
+      const from = draftPreset(); // start from what's on screen
+      const p = { id: `p${Date.now().toString(36)}`, name: name.slice(0, 60), prompt: from.prompt, format: from.format, schema: from.schema };
+      draft.presets.push(p);
+      draft.active = p.id;
+      hideNewRow();
+      fillPresetSelect();
+      showDraftPreset();
+      sysPromptEl.focus();
+    }
+
+    function deletePreset() {
+      if (draft.active === 'default') return;
+      const i = draft.presets.findIndex((p) => p.id === draft.active);
+      const [removed] = draft.presets.splice(i, 1);
+      draft.active = 'default';
+      fillPresetSelect();
+      showDraftPreset();
+      presetSel.focus();
+      showToast(`Deleted "${removed.name}".`, {
+        label: 'Undo',
+        onClick: () => {
+          if (!draft) return;
+          draft.presets.splice(i, 0, removed);
+          draft.active = removed.id;
+          fillPresetSelect();
+          showDraftPreset();
+        },
+      });
     }
 
     function updateMeterSoon() {
@@ -1082,11 +1159,14 @@ Then:
       meterTimer = setTimeout(updateMeter, 250);
     }
 
-    // How much of the model's memory the full system prompt uses. Exact when
-    // a session can measure it, otherwise estimated at 4 characters a token.
+    // How much of the model's memory the system prompt (and JSON schema)
+    // uses. Exact when a session can measure it, otherwise estimated at
+    // 4 characters a token.
     async function updateMeter() {
       if (!draft) return;
-      const text = composeSystemPrompt({ ...draft, rules: rulesEl.value });
+      const p = draftPreset();
+      const cfg = { ...draft, language: languageSel.value || draft.language };
+      const text = composeSystemPrompt(cfg) + (p.format === 'json' ? `\n${p.schema}` : '');
       let tokens = Math.round(text.length / 4);
       let exact = false;
       const measure = session && (session.measureContextUsage || session.measureInputUsage);
@@ -1094,7 +1174,7 @@ Then:
         try {
           const n = await measure.call(session, text);
           if (typeof n === 'number' && n > 0) { tokens = n; exact = true; }
-        } catch { /* fall back to the estimate */ }
+        } catch { /* use the estimate */ }
       }
       if (!draft) return;
       const win = session ? (session.contextWindow ?? session.inputQuota) : null;
@@ -1113,39 +1193,68 @@ Then:
     }
 
     modeBtn.addEventListener('click', openSettings);
-    document.getElementById('settings-close').addEventListener('click', closeSettings);
-    document.getElementById('settings-cancel').addEventListener('click', closeSettings);
-    document.getElementById('settings-apply').addEventListener('click', applySettings);
+    $('settings-close').addEventListener('click', closeSettings);
+    $('settings-cancel').addEventListener('click', closeSettings);
+    $('settings-apply').addEventListener('click', applySettings);
     backdrop.addEventListener('click', closeSettings);
 
-    document.getElementById('settings-reset').addEventListener('click', () => {
-      delete draft.edits[draft.preset];
-      fillPresetOptions();
+    presetSel.addEventListener('change', () => {
+      draft.active = presetSel.value;
+      hideNewRow();
+      fillPresetSelect();
+      showDraftPreset();
+    });
+
+    $('preset-new').addEventListener('click', () => {
+      newRow.hidden = false;
+      newError.hidden = true;
+      newName.focus();
+    });
+    $('new-save').addEventListener('click', createPreset);
+    $('new-cancel').addEventListener('click', () => { hideNewRow(); $('preset-new').focus(); });
+    newName.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); createPreset(); }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hideNewRow(); $('preset-new').focus(); }
+    });
+    deleteBtn.addEventListener('click', deletePreset);
+
+    sysPromptEl.addEventListener('input', () => {
+      const p = draftPreset();
+      p.prompt = sysPromptEl.value;
+      promptResetBtn.hidden = !(p.id === 'default' && p.prompt !== DEFAULT_PROMPT);
+      updateMeterSoon();
+    });
+
+    promptResetBtn.addEventListener('click', () => {
+      draftPreset().prompt = DEFAULT_PROMPT;
       showDraftPreset();
       sysPromptEl.focus();
     });
 
-    presetSel.addEventListener('change', () => {
-      captureDraftPrompt();
-      draft.preset = presetSel.value;
-      fillPresetOptions();
-      showDraftPreset();
-    });
+    formatRadios.forEach((r) => r.addEventListener('change', () => {
+      const p = draftPreset();
+      p.format = r.value;
+      if (p.format === 'json' && !p.schema.trim()) p.schema = EXAMPLE_SCHEMA;
+      schemaWrap.hidden = p.format !== 'json';
+      schemaEl.value = p.schema;
+      schemaError.hidden = true;
+      updateMeterSoon();
+    }));
 
-    sysPromptEl.addEventListener('input', () => {
-      const hadEdit = typeof draft.edits[draft.preset] === 'string';
-      captureDraftPrompt();
-      if (hadEdit !== (typeof draft.edits[draft.preset] === 'string')) fillPresetOptions();
+    schemaEl.addEventListener('input', () => {
+      draftPreset().schema = schemaEl.value;
+      schemaError.hidden = true;
       updateMeterSoon();
     });
 
-    rulesEl.addEventListener('input', updateMeterSoon);
+    languageSel.addEventListener('change', updateMeterSoon);
 
     // Escape closes. Tab stays inside the drawer while it's open.
     drawer.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') { e.preventDefault(); closeSettings(); return; }
       if (e.key !== 'Tab') return;
-      const items = [...drawer.querySelectorAll('button, select, textarea, summary')].filter((el) => !el.disabled && el.offsetParent !== null);
+      const items = [...drawer.querySelectorAll('button, select, textarea, input, summary')]
+        .filter((el) => !el.disabled && el.offsetParent !== null);
       const first = items[0];
       const last = items[items.length - 1];
       if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
