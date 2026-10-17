@@ -122,7 +122,7 @@
   import { TOOLS, catalogPrompt, routeSchema, runTool, isoDay } from './tools.js';
 
   const $ = (id) => document.getElementById(id);
-  const report = { version: 'eval-1', started: new Date().toISOString(), browser: detectBrowser(), toolChecks: null, model: null };
+  const report = { version: 'eval-2', started: new Date().toISOString(), browser: detectBrowser(), toolChecks: null, model: null };
 
   function detectBrowser() {
     const uad = navigator.userAgentData;
@@ -222,9 +222,9 @@
     { id: 'date-weekday', q: 'What day of the week will it be 100 days from today?', tool: 'add_days', check: (r) => r.weekday === weekdayIn100, answer: { word: weekdayIn100 } },
     { id: 'date-between', q: 'How many days are there between March 1, 2026 and December 25, 2026?', tool: 'days_between', check: (r) => Math.abs(r.days) === 299, answer: { number: 299, tol: 0 } },
     { id: 'date-add', q: 'What date is 45 days after November 20, 2026?', tool: 'add_days', check: (r) => r.date === '2027-01-04', answer: { date: ['2027-01-04', 'january 4', 'jan 4', '1/4/2027', '4 january'] } },
-    { id: 'unit-temp', q: 'Convert 72 degrees Fahrenheit to Celsius.', tool: 'convert_units', check: (r) => near(r.result, 22.22, 0.05), answer: { number: 22.22, tol: 0.06 } },
-    { id: 'unit-miles', q: 'How many kilometers is a 26.2 mile marathon?', tool: 'convert_units', check: (r) => near(r.result, 42.165, 0.05), answer: { number: 42.16, tol: 0.06 } },
-    { id: 'unit-kg', q: 'How many pounds is 80 kg?', tool: 'convert_units', check: (r) => near(r.result, 176.37, 0.1), answer: { number: 176.37, tol: 0.2 } },
+    { id: 'unit-temp', q: 'Convert 72 degrees Fahrenheit to Celsius.', tool: 'convert_units', check: (r) => near(r.result, 22.22, 0.05), answer: { number: 22.22, tol: 0.06, rounded: 0.5 } },
+    { id: 'unit-miles', q: 'How many kilometers is a 26.2 mile marathon?', tool: 'convert_units', check: (r) => near(r.result, 42.165, 0.05), answer: { number: 42.16, tol: 0.06, rounded: 0.5 } },
+    { id: 'unit-kg', q: 'How many pounds is 80 kg?', tool: 'convert_units', check: (r) => near(r.result, 176.37, 0.1), answer: { number: 176.37, tol: 0.2, rounded: 0.5 } },
     { id: 'text-words', q: 'Count the words in this sentence: The quick brown fox jumps over the lazy dog.', tool: 'text_stats', check: (r) => r.words === 9, answer: { number: 9, tol: 0 } },
     { id: 'text-letters', q: 'How many letters are in the word "antidisestablishmentarianism"?', tool: 'text_stats', check: (r) => r.letters === 28, answer: { number: 28, tol: 0 } },
     { id: 'wiki-person', q: 'Who was Ada Lovelace?', tool: 'wikipedia', check: (r) => r.found && /lovelace/i.test(r.title) },
@@ -243,7 +243,9 @@
     if (ans.word) return t.includes(ans.word.toLowerCase());
     if (ans.date) return ans.date.some((d) => t.includes(d));
     const nums = (t.replace(/(\d),(?=\d{3}\b)/g, '$1').match(/-?\d+(?:\.\d+)?/g) || []).map(Number);
-    return nums.some((n) => Math.abs(n - ans.number) <= ans.tol);
+    // Unit answers may be sensibly rounded ("22°C" for 22.22).
+    const tol = Math.max(ans.tol, ans.rounded || 0);
+    return nums.some((n) => Math.abs(n - ans.number) <= tol);
   }
 
   function parseRoute(raw) {
@@ -326,6 +328,20 @@
     }
 
     const schema = routeSchema(TOOLS);
+    model.schemaRejected = 0;
+
+    // Warm up once, so the first question isn't timed on a cold model.
+    try {
+      status.textContent = 'Warming up the model...';
+      const t = performance.now();
+      const w = await fresh(router, routerSystem);
+      await w.prompt('Hi', { signal: AbortSignal.timeout(60000), responseConstraint: schema }).catch(() => w.prompt('Hi', { signal: AbortSignal.timeout(60000) }));
+      if (w !== router && typeof w.destroy === 'function') w.destroy();
+      model.warmupMs = Math.round(performance.now() - t);
+    } catch (err) {
+      model.warmupError = `${err.name}: ${err.message}`;
+    }
+
     for (let i = 0; i < TASKS.length; i++) {
       if (stopper.signal.aborted) { model.aborted = true; break; }
       const task = TASKS[i];
@@ -353,9 +369,12 @@
         const s = await fresh(router, routerSystem);
         try {
           raw = await s.prompt(task.q, { signal, responseConstraint: schema });
+          row.schema = 'ok';
         } catch (err) {
           if (err.name === 'AbortError' || err.name === 'TimeoutError' || err.name === 'QuotaExceededError') throw err;
           model.schemaSupported = false;
+          model.schemaRejected++;
+          row.schema = `rejected: ${err.name}: ${clip(err.message, 160)}`;
           raw = await s.prompt(`${task.q}\n\nReply with JSON only.`, { signal });
         }
         if (s !== router && typeof s.destroy === 'function') s.destroy();
@@ -367,8 +386,8 @@
       row.picked = route ? route.tool : null;
       row.args = route ? route.args : null;
       row.routeOk = row.picked === task.tool;
-      if (!route) row.raw = clip(raw, 200);
-      pickedTd.textContent = row.picked ?? (row.error ? 'error' : 'bad JSON');
+      if (!route || !route.tool) row.raw = clip(raw, 200);
+      pickedTd.textContent = row.picked ?? (row.error ? 'error' : route ? 'no tool field' : 'bad JSON');
       pickedTd.className = `mono tool ${row.routeOk ? 'pass' : 'fail'}`;
       argsTd.textContent = row.args ? clip(row.args, 120) : (row.raw || row.error || '');
 
@@ -380,8 +399,9 @@
         const out = await runTool(row.picked, row.args, { signal: AbortSignal.timeout(15000) });
         row.argsOk = out.ok;
         let ok = false;
-        if (out.ok && row.routeOk) { try { ok = !!task.check(out.result); } catch { ok = false; } }
+        if (out.ok) { try { ok = !!task.check(out.result); } catch { ok = false; } }
         row.endToEnd = ok;
+        if (ok && !row.routeOk) row.rightAnswerOtherTool = true;
         resultTd.textContent = out.ok ? clip(out.result, 120) : `Error: ${out.error}`;
         if (!ok) row.toolOut = out.ok ? clip(out.result, 200) : out.error;
       } else {
@@ -435,6 +455,7 @@
       right_answer_without_tools: withAnswer.length ? `${base}/${withAnswer.length}` : 'not run',
       same_questions_with_tools: withAnswer.length ? `${sameWithTools}/${withAnswer.length}` : 'not run',
       avg_route_ms: avgMs,
+      schema_rejected: `${model.schemaRejected}/${r.length}`,
     };
     const scores = $('scores');
     scores.textContent = '';

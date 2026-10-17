@@ -89,6 +89,7 @@ export function evaluateExpression(input) {
 
 const calculate = {
   name: 'calculate',
+  label: 'Calculator',
   summary: 'math and percentages',
   example: { expression: '0.18 * 2450' },
   network: false,
@@ -123,6 +124,7 @@ const weekday = (ms) => WEEKDAYS[new Date(ms).getUTCDay()];
 
 const daysBetween = {
   name: 'days_between',
+  label: 'Days between dates',
   summary: 'days between two dates',
   example: { from: '2026-03-01', to: '2026-12-25' },
   network: false,
@@ -140,6 +142,7 @@ const daysBetween = {
 
 const addDays = {
   name: 'add_days',
+  label: 'Date math',
   summary: 'the date some days before or after a date',
   example: { date: 'today', days: 100 },
   network: false,
@@ -205,6 +208,7 @@ export function convert(value, fromUnit, toUnit) {
 
 const convertUnits = {
   name: 'convert_units',
+  label: 'Unit converter',
   summary: 'unit conversion (length, weight, volume, speed, area, temperature)',
   example: { value: 26.2, from: 'mi', to: 'km' },
   network: false,
@@ -243,6 +247,7 @@ export function textStats(text) {
 
 const textStatsTool = {
   name: 'text_stats',
+  label: 'Text stats',
   summary: 'count words, sentences, letters, or characters in a given text',
   example: { text: 'the exact text' },
   network: false,
@@ -260,6 +265,7 @@ async function getJSON(url, signal) {
 
 const wikipedia = {
   name: 'wikipedia',
+  label: 'Wikipedia',
   summary: 'look up a person, place, or thing on Wikipedia',
   example: { query: 'Ada Lovelace' },
   network: 'en.wikipedia.org',
@@ -291,6 +297,7 @@ const toF = (c) => Math.round(c * 9 / 5 + 32);
 
 const weather = {
   name: 'weather',
+  label: 'Weather',
   summary: 'current weather and 3 day forecast for a place',
   example: { place: 'Austin' },
   network: 'open-meteo.com',
@@ -338,6 +345,25 @@ const weather = {
   },
 };
 
+// ---------- describing a call ----------
+
+// One short line about a finished call, for the chat's "Used ..." label.
+export function describeCall(name, args = {}, out = {}) {
+  if (out.declined) return 'not sent, you said no';
+  if (!out.ok) return `failed: ${out.error || 'unknown error'}`;
+  const r = out.result || {};
+  switch (name) {
+    case 'calculate': return `${args.expression} = ${r.result}`;
+    case 'days_between': return `${r.from} to ${r.to}: ${r.days} days`;
+    case 'add_days': return `${r.date}, a ${r.weekday}`;
+    case 'convert_units': return `${args.value} ${args.from} = ${r.result} ${args.to}`;
+    case 'text_stats': return `${r.words} words, ${r.characters} characters`;
+    case 'wikipedia': return r.found ? r.title : `no match for "${args.query}"`;
+    case 'weather': return r.found ? `${r.place}: ${r.now.temp_f}°F, ${r.now.conditions}` : `couldn't find "${args.place}"`;
+    default: return 'done';
+  }
+}
+
 // ---------- catalog ----------
 
 export const TOOLS = [calculate, daysBetween, addDays, convertUnits, textStatsTool, wikipedia, weather];
@@ -359,6 +385,7 @@ export function catalogPrompt(tools = TOOLS, today = new Date()) {
     'Rules:',
     '- Use a tool only when it clearly helps. Otherwise pick "none".',
     '- For any arithmetic, use calculate. Write the expression with numbers and + - * / ^ only.',
+    '- For converting units, like kg to pounds or miles to km, use convert_units, not calculate.',
     '- For dates, use YYYY-MM-DD, or "today".',
   ].join('\n');
 }

@@ -102,6 +102,59 @@
     .msg.ai { align-self: flex-start; background: var(--ai-bubble); border-bottom-left-radius: 4px; }
     .msg.ai.pending { color: var(--muted); font-style: italic; }
     .msg.ai.error { color: var(--error); }
+
+    /* Tool use */
+    .tool-use { align-self: flex-start; max-width: 85%; font-size: 12.5px; color: var(--muted); margin-bottom: -6px; }
+    .tool-use summary {
+      cursor: pointer;
+      list-style: none;
+      display: inline-block;
+      padding: 3px 10px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--panel);
+      overflow-wrap: anywhere;
+    }
+    .tool-use summary::-webkit-details-marker { display: none; }
+    .tool-use summary::before { content: "\2699\FE0E  "; }
+    .tool-use.failed summary { color: var(--error); }
+    .tool-use pre {
+      margin: 6px 0 0;
+      padding: 8px 10px;
+      background: var(--code-bg);
+      color: var(--text);
+      border-radius: 8px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-size: 12px;
+      max-height: 240px;
+      overflow: auto;
+    }
+    .tool-ask {
+      align-self: flex-start;
+      max-width: 85%;
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--warn);
+      border-radius: 10px;
+      background: var(--panel);
+      padding: 10px 12px;
+      font-size: 14px;
+    }
+    .tool-ask p { margin: 0; }
+    .tool-ask .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .tool-ask .actions .primary { font-size: 14px; padding: 6px 14px; }
+    .tool-ask .actions .secondary { font-size: 14px; }
+
+    /* Tools section in Settings */
+    .drawer .toggle { display: inline-flex; gap: 8px; align-items: center; font-size: 14px; font-weight: 600; margin-top: 4px; }
+    .tool-list { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+    .tool-list.off { opacity: 0.5; }
+    .drawer-body .tool-item { display: grid; grid-template-columns: auto 1fr; gap: 0 8px; align-items: start; margin: 0; padding: 6px 0; font-weight: 400; font-size: 14px; border-bottom: 1px solid var(--border); }
+    .tool-item input { margin-top: 3px; }
+    .tool-item .what { color: var(--muted); font-size: 12.5px; grid-column: 2; }
+    .tool-item .net { color: var(--warn); }
+    .site-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+    .site-row code { flex: 1; }
     .msg.note {
       align-self: center;
       background: var(--note-bg);
@@ -446,6 +499,15 @@
       <label for="language">Reply language</label>
       <select id="language"></select>
       <p class="field-hint">The languages the built-in model supports.</p>
+
+      <h3 class="section">Tools</h3>
+      <label class="toggle"><input id="tools-enabled" type="checkbox"> Let the model use tools</label>
+      <p class="field-hint">Before each reply, a quick separate step picks a tool if one helps. It doesn't use chat memory. Tools are skipped when the prompt is set to JSON replies.</p>
+      <div id="tool-list" class="tool-list"></div>
+      <div id="site-wrap" class="stack" hidden>
+        <label>Always allowed sites</label>
+        <div id="site-list" class="stack"></div>
+      </div>
     </div>
     <div class="drawer-foot">
       <span class="spacer"></span>
@@ -569,10 +631,15 @@
     const DEFAULT_PROMPT = [
       'You are a helpful assistant inside a private chat page that runs in the user\'s browser.',
       'Keep answers clear and reasonably short. Use Markdown when it helps readability.',
+      'Write math in plain text, not LaTeX.',
     ].join(' ');
 
-    // The default text before it became browser neutral, for migration.
-    const OLD_DEFAULT_PROMPT = 'You are a helpful assistant inside a chat page called Local Gemini Nano Chat. Keep answers clear and reasonably short. Use Markdown when it helps readability.';
+    // Earlier default texts. A saved Default that still matches one of these
+    // is upgraded to the current default.
+    const OLD_DEFAULT_PROMPTS = [
+      'You are a helpful assistant inside a chat page called Local Gemini Nano Chat. Keep answers clear and reasonably short. Use Markdown when it helps readability.',
+      'You are a helpful assistant inside a private chat page that runs in the user\'s browser. Keep answers clear and reasonably short. Use Markdown when it helps readability.',
+    ];
 
     // Starting point when someone switches a prompt to JSON replies.
     const EXAMPLE_SCHEMA = JSON.stringify({
@@ -613,7 +680,12 @@
     // language apply to every prompt.
     const SETTINGS_KEY = 'gemini-nano-chat:settings:v2';
     const defaultPreset = () => ({ id: 'default', name: 'Default', prompt: DEFAULT_PROMPT, format: 'text', schema: '' });
-    const defaultSettings = () => ({ active: 'default', presets: [defaultPreset()], sampling: 'auto', language: 'en' });
+    const cleanTools = (t) => ({
+      enabled: !(t && t.enabled === false),
+      off: t && Array.isArray(t.off) ? t.off.filter((x) => typeof x === 'string') : [],
+      sites: t && Array.isArray(t.sites) ? t.sites.filter((x) => typeof x === 'string') : [],
+    });
+    const defaultSettings = () => ({ active: 'default', presets: [defaultPreset()], sampling: 'auto', language: 'en', tools: cleanTools() });
     let settings = loadSettings();
     let activeSampling = null; // the creativity level the browser actually accepted
     let languageApplied = true; // whether the browser accepted the language hint
@@ -638,7 +710,7 @@
         const def = presets.find((p) => p.id === 'default');
         if (def) {
           def.name = 'Default';
-          if (def.prompt === OLD_DEFAULT_PROMPT) def.prompt = DEFAULT_PROMPT; // older default text
+          if (OLD_DEFAULT_PROMPTS.includes(def.prompt)) def.prompt = DEFAULT_PROMPT; // older default text
         }
         else presets.unshift(defaultPreset());
         return {
@@ -646,6 +718,7 @@
           presets,
           sampling: SAMPLING_MODES.some(([v]) => v === s.sampling) ? s.sampling : 'auto',
           language: LANGUAGES.some(([v]) => v === s.language) ? s.language : 'en',
+          tools: cleanTools(s.tools),
         };
       } catch {
         return defaultSettings();
@@ -694,7 +767,12 @@
         if (!Array.isArray(arr)) return [];
         return arr
           .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
-          .map((m) => (typeof m.view === 'string' ? { role: m.role, content: m.content, view: m.view } : { role: m.role, content: m.content }));
+          .map((m) => {
+            const out = { role: m.role, content: m.content };
+            if (typeof m.view === 'string') out.view = m.view;
+            if (m.tool && typeof m.tool === 'object' && typeof m.tool.name === 'string') out.tool = m.tool;
+            return out;
+          });
       } catch {
         return [];
       }
@@ -936,8 +1014,11 @@
 
       try {
         const s = await sessionReady;
+        // Tools: skipped for JSON replies, which already have a fixed shape.
+        const toolInfo = preset.format === 'json' ? null : await useTools(text, bubble, controller.signal);
+        if (toolInfo) addToolChip(toolInfo, bubble);
         bubble.textContent = 'Thinking...';
-        const reply = await askModel(s, text, preset, controller.signal);
+        const reply = await askModel(s, toolInfo ? withToolResult(text, toolInfo) : text, preset, controller.signal);
         bubble.classList.remove('pending');
         const view = preset.format === 'json' ? 'json' : undefined;
         if (reply) renderReply(bubble, reply, view);
@@ -945,6 +1026,13 @@
         if (reply) {
           const answer = { role: 'assistant', content: reply };
           if (view) answer.view = view;
+          if (toolInfo) {
+            answer.tool = { name: toolInfo.name, label: toolInfo.label, args: toolInfo.args, ok: !!toolInfo.ok, line: toolInfo.line };
+            if (toolInfo.declined) answer.tool.declined = true;
+            if (toolInfo.error) answer.tool.error = toolInfo.error;
+            const r = toolInfo.result && JSON.stringify(toolInfo.result);
+            if (r && r.length <= 1500) answer.tool.result = toolInfo.result;
+          }
           history.push({ role: 'user', content: text }, answer);
           saveHistory();
         }
@@ -982,7 +1070,7 @@
       saveHistory();
       const wasLoaded = !!session;
       if (session) { session.destroy(); session = null; }
-      chat.querySelectorAll('.msg').forEach((m) => m.remove());
+      chat.querySelectorAll('.msg, .tool-use, .tool-ask').forEach((m) => m.remove());
       empty.hidden = !!onboardCard;
       promptEl.focus();
       if (wasLoaded) {
@@ -996,7 +1084,7 @@
     function undoNewChat(saved) {
       history = saved;
       saveHistory();
-      chat.querySelectorAll('.msg').forEach((m) => m.remove());
+      chat.querySelectorAll('.msg, .tool-use, .tool-ask').forEach((m) => m.remove());
       restoreHistory();
       setStatus('Chat restored.');
       // Reload the model with the restored chat so it remembers it.
@@ -1016,6 +1104,182 @@
         })
         .catch(() => setStatus('The model failed to load. Send a message to retry.', true));
       return true;
+    }
+
+    // ---------- Tools ----------
+    // A separate, short-lived session picks a tool for each message (JSON
+    // mode), so tool picking never uses the chat's memory. The page runs the
+    // tool, then the chat model writes the reply using the result. Tool code
+    // lives in tools.js and is tested ahead of time.
+
+    let Tools = null;
+    const toolsReady = import('./tools.js')
+      .then((m) => { Tools = m; return m; })
+      .catch((err) => { console.warn('[nano] tools failed to load:', err); return null; });
+
+    let routerBase = null;
+    let routerKey = '';
+
+    const enabledTools = (cfg = settings) =>
+      (Tools ? Tools.TOOLS.filter((t) => !cfg.tools.off.includes(t.name)) : []);
+
+    async function getRouter(tools) {
+      const key = tools.map((t) => t.name).join(',');
+      if (routerBase && routerKey === key) return routerBase;
+      if (routerBase && typeof routerBase.destroy === 'function') routerBase.destroy();
+      routerBase = null;
+      const base = { initialPrompts: [{ role: 'system', content: Tools.catalogPrompt(tools) }] };
+      let s;
+      try {
+        s = await LanguageModel.create({ ...base, samplingMode: 'most-predictable' });
+      } catch (err) {
+        if (err.name === 'QuotaExceededError') throw err;
+        s = await LanguageModel.create(base);
+      }
+      routerBase = s;
+      routerKey = key;
+      return s;
+    }
+
+    function parseRoute(raw) {
+      const s = String(raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+      try {
+        return JSON.parse(s);
+      } catch {
+        const m = s.match(/\{[\s\S]*\}/);
+        if (m) { try { return JSON.parse(m[0]); } catch { /* not JSON */ } }
+        return null;
+      }
+    }
+
+    // Ask the router which tool fits. Any problem means "no tool".
+    async function routeMessage(text, tools, signal) {
+      const base = await getRouter(tools);
+      const canClone = typeof base.clone === 'function';
+      const s = canClone ? await base.clone({ signal }) : base;
+      let raw;
+      try {
+        try {
+          raw = await s.prompt(text, { signal, responseConstraint: Tools.routeSchema(tools) });
+        } catch (err) {
+          if (err.name === 'AbortError' || err.name === 'QuotaExceededError') throw err;
+          console.warn('[nano] routing schema not accepted, asking without it:', err);
+          raw = await s.prompt(`${text}\n\nReply with JSON only.`, { signal });
+        }
+      } finally {
+        if (canClone) { if (typeof s.destroy === 'function') s.destroy(); }
+        else routerBase = null; // no clone(): start fresh next time so context doesn't pile up
+      }
+      const route = parseRoute(raw);
+      if (!route || typeof route.tool !== 'string' || route.tool === 'none') return null;
+      const tool = tools.find((t) => t.name === route.tool);
+      return tool ? { tool, args: route.args && typeof route.args === 'object' ? route.args : {} } : null;
+    }
+
+    function argPreview(args) {
+      const v = args.query ?? args.place ?? args.text ?? JSON.stringify(args);
+      const s = String(v);
+      return s.length > 120 ? `${s.slice(0, 120)}...` : s;
+    }
+
+    // Inline approval before a tool sends anything off the device.
+    function askToSend(host, preview, beforeEl, signal) {
+      return new Promise((resolve) => {
+        const box = document.createElement('div');
+        box.className = 'tool-ask';
+        box.setAttribute('role', 'group');
+        box.setAttribute('aria-label', `Allow sending to ${host}`);
+        const p = document.createElement('p');
+        p.textContent = `To answer this, the page wants to send "${preview}" to ${host}.`;
+        const row = document.createElement('div');
+        row.className = 'actions';
+        const done = (choice) => {
+          signal.removeEventListener('abort', onAbort);
+          box.remove();
+          resolve(choice);
+        };
+        const onAbort = () => done('deny');
+        [['Allow once', 'once', 'primary'], [`Always allow ${host}`, 'always', 'secondary'], ['Don\'t send', 'deny', 'secondary']]
+          .forEach(([label, choice, cls]) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = cls;
+            b.textContent = label;
+            b.addEventListener('click', () => done(choice));
+            row.appendChild(b);
+          });
+        box.append(p, row);
+        chat.insertBefore(box, beforeEl);
+        scrollToBottom();
+        signal.addEventListener('abort', onAbort);
+        row.querySelector('button').focus();
+      });
+    }
+
+    // The small "Used Calculator: 0.18 * 2450 = 441" line above a reply.
+    function addToolChip(info, beforeEl = null) {
+      const d = document.createElement('details');
+      d.className = `tool-use${info.ok ? '' : ' failed'}`;
+      const s = document.createElement('summary');
+      const label = info.label || info.name;
+      const line = info.line || (Tools ? Tools.describeCall(info.name, info.args, info) : '');
+      s.textContent = `${info.declined ? 'Skipped' : 'Used'} ${label}${line ? `: ${line}` : ''}`;
+      const pre = document.createElement('pre');
+      pre.textContent = JSON.stringify({ tool: info.name, args: info.args, ...(info.ok ? { result: info.result } : { error: info.error || (info.declined ? 'not sent' : undefined) }) }, null, 2);
+      d.append(s, pre);
+      chat.insertBefore(d, beforeEl);
+      return d;
+    }
+
+    function withToolResult(text, info) {
+      if (info.declined) {
+        return `${text}\n\n(The user chose not to send this to ${info.host}. Answer from what you know, and say it may be out of date.)`;
+      }
+      if (!info.ok) {
+        return `${text}\n\n[The ${info.label} tool failed: ${info.error}]\nAnswer as best you can, and mention that the tool failed.`;
+      }
+      let data = JSON.stringify(info.result);
+      if (data.length > 2000) data = `${data.slice(0, 2000)}...`;
+      return `${text}\n\n[Result from the ${info.label} tool: ${data}]\nUse this result in your answer. Trust it over your own guess.`;
+    }
+
+    // Route, ask if needed, run. Returns null when no tool is used.
+    async function useTools(text, bubble, signal) {
+      await toolsReady;
+      const tools = enabledTools();
+      if (!Tools || !settings.tools.enabled || !tools.length) return null;
+      bubble.textContent = 'Checking tools...';
+      let picked = null;
+      try {
+        picked = await routeMessage(text, tools, signal);
+      } catch (err) {
+        if (err.name === 'AbortError') throw err;
+        console.warn('[nano] tool routing failed, answering without tools:', err);
+        return null;
+      }
+      if (!picked) return null;
+      const { tool, args } = picked;
+      const info = { name: tool.name, label: tool.label, args };
+      if (tool.network && !settings.tools.sites.includes(tool.network)) {
+        bubble.textContent = 'Waiting for your OK...';
+        const choice = await askToSend(tool.network, argPreview(args), bubble, signal);
+        if (signal.aborted) throw new DOMException('Stopped', 'AbortError');
+        if (choice === 'always') {
+          settings.tools.sites.push(tool.network);
+          saveSettings();
+        }
+        if (choice === 'deny') {
+          Object.assign(info, { ok: false, declined: true, host: tool.network });
+          info.line = Tools.describeCall(tool.name, args, info);
+          return info;
+        }
+      }
+      bubble.textContent = `Using ${tool.label}...`;
+      const out = await Tools.runTool(tool.name, args, { signal });
+      if (signal.aborted) throw new DOMException('Stopped', 'AbortError');
+      Object.assign(info, out);
+      info.line = Tools.describeCall(tool.name, args, out);
+      return info;
     }
 
     // ---------- Asking and rendering ----------
@@ -1090,6 +1354,11 @@
     const meterText = meter.querySelector('.meter-text');
     const identityEl = $('identity-text');
 
+    const toolsEnabledEl = $('tools-enabled');
+    const toolListEl = $('tool-list');
+    const siteWrap = $('site-wrap');
+    const siteListEl = $('site-list');
+
     let draft = null; // a copy of settings while the drawer is open
     let lastFocus = null;
     let meterTimer = null;
@@ -1148,6 +1417,7 @@
         : '';
       hideNewRow();
       showDraftPreset();
+      renderToolSettings();
       lastFocus = document.activeElement;
       backdrop.hidden = false;
       drawer.hidden = false;
@@ -1183,6 +1453,69 @@
       const reloading = needsReload && reloadModel();
       showToast(reloading ? 'Settings saved. Reloading the model...' : 'Settings saved.', null, 3500);
     }
+
+    function renderToolSettings() {
+      toolsEnabledEl.checked = draft.tools.enabled;
+      toolListEl.classList.toggle('off', !draft.tools.enabled);
+      toolListEl.textContent = '';
+      if (!Tools) {
+        const p = document.createElement('p');
+        p.className = 'field-hint';
+        p.textContent = 'Tools could not load. Reload the page to try again.';
+        toolListEl.appendChild(p);
+      } else {
+        Tools.TOOLS.forEach((t) => {
+          const row = document.createElement('label');
+          row.className = 'tool-item';
+          const box = document.createElement('input');
+          box.type = 'checkbox';
+          box.checked = !draft.tools.off.includes(t.name);
+          box.disabled = !draft.tools.enabled;
+          box.addEventListener('change', () => {
+            draft.tools.off = draft.tools.off.filter((n) => n !== t.name);
+            if (!box.checked) draft.tools.off.push(t.name);
+          });
+          const name = document.createElement('span');
+          name.textContent = t.label;
+          const what = document.createElement('span');
+          what.className = 'what';
+          what.textContent = `${t.summary.charAt(0).toUpperCase()}${t.summary.slice(1)}.`;
+          if (t.network) {
+            const net = document.createElement('span');
+            net.className = 'net';
+            net.textContent = ` Sends your search to ${t.network}. Asks first.`;
+            what.appendChild(net);
+          }
+          row.append(box, name, what);
+          toolListEl.appendChild(row);
+        });
+      }
+      siteListEl.textContent = '';
+      siteWrap.hidden = !draft.tools.sites.length;
+      draft.tools.sites.forEach((host) => {
+        const row = document.createElement('div');
+        row.className = 'site-row';
+        const code = document.createElement('code');
+        code.textContent = host;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'secondary';
+        btn.textContent = 'Remove';
+        btn.setAttribute('aria-label', `Stop always allowing ${host}`);
+        btn.addEventListener('click', () => {
+          draft.tools.sites = draft.tools.sites.filter((h) => h !== host);
+          renderToolSettings();
+          toolsEnabledEl.focus();
+        });
+        row.append(code, btn);
+        siteListEl.appendChild(row);
+      });
+    }
+
+    toolsEnabledEl.addEventListener('change', () => {
+      draft.tools.enabled = toolsEnabledEl.checked;
+      renderToolSettings();
+    });
 
     function createPreset() {
       const name = newName.value.trim();
@@ -1630,8 +1963,9 @@
     // libraries load with defer and run after this script.
     function restoreHistory() {
       history.forEach((m) => {
-        if (m.role === 'user') addMessage('user', m.content);
-        else renderReply(addMessage('ai'), m.content, m.view);
+        if (m.role === 'user') { addMessage('user', m.content); return; }
+        if (m.tool) addToolChip(m.tool);
+        renderReply(addMessage('ai'), m.content, m.view);
       });
     }
     updateModeUI();
