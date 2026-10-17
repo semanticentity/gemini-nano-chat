@@ -15,6 +15,9 @@ A tiny chat page that talks to the AI model built into your browser: Gemini Nano
   - Creativity (Chrome's `samplingMode`) and reply language. If Chrome refuses a setting, the page falls back and says so.
   - A few locked lines always go first, so the model knows what it is and where it runs.
 - Tools in the chat. Before each reply, a separate quick step picks a tool if one helps (JSON mode), the page runs it, and the model answers using the result. A small "Used Calculator: ..." line shows what ran. Web tools (Wikipedia, weather) ask before sending anything, with Allow once, Always allow, or Don't send. Each tool can be switched off in Settings. Tool picking doesn't use chat memory.
+- Starter prompts on the empty screen. Copy on every message, Edit on your last message, Regenerate on the last reply.
+- Summarize, Proofread, and Translate under messages. Uses Chrome's Summarizer, Translator, Language Detector, and Proofreader when available, and the chat model otherwise. Results are labeled, saved, and kept out of the chat model's memory.
+- Context the browser already knows: the current date, time, and time zone on every message; your units (US or metric, from your region, or set in Settings); "weather near me" using your location after the browser asks; web tools skipped when offline; follow-up questions routed with the previous message for context.
 - Chats are saved in your browser and survive a reload. The saved chat is fed back to the model, so follow-up questions still work. Nothing is stored anywhere else.
 - Multiline input: Enter sends, Shift+Enter adds a line.
 - Stop button, New chat button, and a context meter.

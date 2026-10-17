@@ -298,13 +298,31 @@ const toF = (c) => Math.round(c * 9 / 5 + 32);
 const weather = {
   name: 'weather',
   label: 'Weather',
-  summary: 'current weather and 3 day forecast for a place',
+  summary: 'current weather and 3 day forecast for a place. Use "here" for the user\'s own location',
   example: { place: 'Austin' },
   network: 'open-meteo.com',
   validate: (a) => (typeof a.place === 'string' && a.place.trim() ? null : 'Needs "place".'),
-  run: async (a, { signal } = {}) => {
+  run: async (a, { signal, locate } = {}) => {
+    let pick;
+    if (isHere(a.place)) {
+      // The user's own location, from the browser (it asks permission).
+      if (!locate) throw new Error('Location is not available here.');
+      const pos = await locate();
+      pick = { name: 'Your location', latitude: pos.latitude, longitude: pos.longitude };
+    } else {
+      pick = await geocode(a.place, signal);
+      if (!pick) return { found: false, place: a.place };
+    }
+    return forecast(pick, signal);
+  },
+};
+
+// Words that mean "the user's own location".
+export const isHere = (place) => /^(here|near me|nearby|my (current )?location|current location|where i am|my area|local)$/i.test(String(place || '').trim());
+
+async function geocode(place, signal) {
     // "Austin, TX" -> search "Austin", prefer a match whose region or country mentions "TX".
-    const [name, ...rest] = a.place.split(',').map((s) => s.trim());
+    const [name, ...rest] = place.split(',').map((s) => s.trim());
     const hint = rest.join(' ').toLowerCase();
     const g = new URL('https://geocoding-api.open-meteo.com/v1/search');
     g.searchParams.set('name', name);
@@ -313,9 +331,11 @@ const weather = {
     g.searchParams.set('format', 'json');
     const geo = await getJSON(g, signal);
     const results = geo.results || [];
-    if (!results.length) return { found: false, place: a.place };
-    const pick = (hint && results.find((r) => [r.admin1, r.country, r.country_code].join(' ').toLowerCase().includes(hint))) || results[0];
+    if (!results.length) return null;
+    return (hint && results.find((r) => [r.admin1, r.country, r.country_code].join(' ').toLowerCase().includes(hint))) || results[0];
+}
 
+async function forecast(pick, signal) {
     const f = new URL('https://api.open-meteo.com/v1/forecast');
     f.searchParams.set('latitude', pick.latitude);
     f.searchParams.set('longitude', pick.longitude);
@@ -331,16 +351,74 @@ const weather = {
       place: [pick.name, pick.admin1, pick.country].filter(Boolean).join(', '),
       now: {
         temp_c: c.temperature_2m, temp_f: toF(c.temperature_2m),
-        feels_like_f: toF(c.apparent_temperature),
+        feels_like_c: c.apparent_temperature, feels_like_f: toF(c.apparent_temperature),
         conditions: WMO[c.weather_code] || `code ${c.weather_code}`,
         wind_kmh: c.wind_speed_10m, precipitation_mm: c.precipitation,
       },
       days: (d.time || []).map((day, i) => ({
         date: day,
+        high_c: d.temperature_2m_max[i], low_c: d.temperature_2m_min[i],
         high_f: toF(d.temperature_2m_max[i]), low_f: toF(d.temperature_2m_min[i]),
         rain_chance: d.precipitation_probability_max ? d.precipitation_probability_max[i] : null,
         conditions: WMO[d.weather_code[i]] || `code ${d.weather_code[i]}`,
       })),
+    };
+}
+
+// ---------- time_until ----------
+
+// Parses "midnight", "noon", "5pm", "5:30 PM", "17:00", "2026-12-25",
+// or "2026-12-31T23:59". A clock time that already passed today means
+// tomorrow. Uses the device's local time zone.
+export function parseTarget(value, now = new Date()) {
+  const s = String(value ?? '').trim().toLowerCase().replace(/\./g, '');
+  const at = (h, m) => {
+    const d = new Date(now);
+    d.setHours(h, m, 0, 0);
+    if (d <= now) d.setDate(d.getDate() + 1);
+    return d;
+  };
+  if (s === 'midnight') return at(0, 0);
+  if (s === 'noon' || s === 'midday') return at(12, 0);
+  const clock = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/);
+  if (clock) {
+    let h = Number(clock[1]);
+    const m = Number(clock[2] || 0);
+    if (clock[3] === 'pm' && h < 12) h += 12;
+    if (clock[3] === 'am' && h === 12) h = 0;
+    if (h > 23 || m > 59 || (!clock[3] && !clock[2])) throw new Error(`Can't read the time "${value}". Use something like "5:30 PM" or "17:00".`);
+    return at(h, m);
+  }
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[t ](\d{1,2}):(\d{2}))?$/);
+  if (iso) return new Date(+iso[1], +iso[2] - 1, +iso[3], iso[4] ? +iso[4] : 0, iso[5] ? +iso[5] : 0);
+  throw new Error(`Can't read the time "${value}". Use something like "5:30 PM", "midnight", or "2026-12-31T23:59".`);
+}
+
+function spell(minutes) {
+  const d = Math.floor(minutes / 1440);
+  const h = Math.floor((minutes % 1440) / 60);
+  const m = minutes % 60;
+  const part = (n, w) => (n ? `${n} ${w}${n === 1 ? '' : 's'}` : '');
+  return [part(d, 'day'), part(h, 'hour'), part(m, 'minute')].filter(Boolean).join(' ') || 'less than a minute';
+}
+
+const timeUntil = {
+  name: 'time_until',
+  label: 'Time until',
+  summary: 'how long from now until a clock time, or a date and time',
+  example: { time: '5:30 PM' },
+  network: false,
+  validate: (a) => (typeof a.time === 'string' && a.time.trim() ? null : 'Needs "time".'),
+  run: (a, { now = new Date() } = {}) => {
+    const target = parseTarget(a.time, now);
+    const minutes = Math.round((target - now) / 60000);
+    const fmt = (d) => d.toLocaleString('en-US', { weekday: 'long', hour: 'numeric', minute: '2-digit' });
+    return {
+      now: fmt(now),
+      target: target.toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
+      minutes,
+      hours: Number((minutes / 60).toFixed(2)),
+      in_words: minutes < 0 ? `${spell(-minutes)} ago` : spell(minutes),
     };
   },
 };
@@ -348,7 +426,12 @@ const weather = {
 // ---------- describing a call ----------
 
 // One short line about a finished call, for the chat's "Used ..." label.
-export function describeCall(name, args = {}, out = {}) {
+// Short numbers for labels: 22.22222222 -> 22.22, 0.000123 -> 0.000123.
+const tidy = (n) => (typeof n === 'number' && Number.isFinite(n)
+  ? (Math.abs(n) >= 1 || n === 0 ? Number(n.toFixed(2)) : Number(n.toPrecision(3)))
+  : n);
+
+export function describeCall(name, args = {}, out = {}, { units = 'us' } = {}) {
   if (out.declined) return 'not sent, you said no';
   if (!out.ok) return `failed: ${out.error || 'unknown error'}`;
   const r = out.result || {};
@@ -356,17 +439,22 @@ export function describeCall(name, args = {}, out = {}) {
     case 'calculate': return `${args.expression} = ${r.result}`;
     case 'days_between': return `${r.from} to ${r.to}: ${r.days} days`;
     case 'add_days': return `${r.date}, a ${r.weekday}`;
-    case 'convert_units': return `${args.value} ${args.from} = ${r.result} ${args.to}`;
+    case 'convert_units': return `${args.value} ${args.from} = ${tidy(r.result)} ${args.to}`;
     case 'text_stats': return `${r.words} words, ${r.characters} characters`;
     case 'wikipedia': return r.found ? r.title : `no match for "${args.query}"`;
-    case 'weather': return r.found ? `${r.place}: ${r.now.temp_f}°F, ${r.now.conditions}` : `couldn't find "${args.place}"`;
+    case 'weather': {
+      if (!r.found) return `couldn't find "${args.place}"`;
+      const temp = units === 'metric' ? `${Math.round(r.now.temp_c)}°C` : `${r.now.temp_f}°F`;
+      return `${r.place}: ${temp}, ${r.now.conditions}`;
+    }
+    case 'time_until': return `${r.in_words} until ${r.target}`;
     default: return 'done';
   }
 }
 
 // ---------- catalog ----------
 
-export const TOOLS = [calculate, daysBetween, addDays, convertUnits, textStatsTool, wikipedia, weather];
+export const TOOLS = [calculate, daysBetween, addDays, timeUntil, convertUnits, textStatsTool, wikipedia, weather];
 export const toolByName = (name) => TOOLS.find((t) => t.name === name);
 
 // Short catalog text for the model. Kept tiny on purpose: every word costs
@@ -388,6 +476,7 @@ export function catalogPrompt(tools = TOOLS, today = new Date()) {
     '- For any arithmetic, use calculate. Write the expression with numbers and + - * / ^ only.',
     '- For converting units, like kg to pounds or miles to km, use convert_units, not calculate.',
     '- For dates, use YYYY-MM-DD, or "today".',
+    '- If an earlier message is shown, route the new message. Use the earlier one only to fill in missing details.',
   ].join('\n');
 }
 

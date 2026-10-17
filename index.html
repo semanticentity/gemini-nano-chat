@@ -155,6 +155,41 @@
     .tool-item .net { color: var(--warn); }
     .site-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
     .site-row code { flex: 1; }
+
+    /* Starter prompts */
+    .starters { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 16px; }
+    .starters button {
+      font-size: 13.5px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+    }
+    .starters button:hover { border-color: var(--accent); }
+    .empty .tip { margin-top: 14px; font-size: 13px; }
+
+    /* Message actions: shown on hover, on the last turn, and always on touch screens */
+    .msg-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-top: -8px; opacity: 0; transition: opacity 0.15s; }
+    .msg-actions.user { align-self: flex-end; justify-content: flex-end; }
+    .msg-actions.ai { align-self: flex-start; }
+    .msg:hover + .msg-actions, .msg-actions:hover, .msg-actions:focus-within, .msg-actions.last { opacity: 1; }
+    @media (hover: none) { .msg-actions { opacity: 1; } }
+    .msg-actions button { border: none; background: none; color: var(--muted); padding: 3px 7px; border-radius: 6px; font-size: 12.5px; }
+    .msg-actions button:hover { color: var(--text); background: var(--code-bg); }
+    .msg-actions button:disabled { opacity: 0.5; cursor: default; }
+    .msg-actions [hidden] { display: none; }
+    .translate-picker { display: inline-flex; gap: 4px; align-items: center; }
+    .translate-picker select {
+      font: inherit;
+      font-size: 12.5px;
+      padding: 2px 6px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+    }
+    .msg .badge { font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
     .msg.note {
       align-self: center;
       background: var(--note-bg);
@@ -424,6 +459,8 @@
       <div class="empty" id="empty">
         <div>Ask anything. Replies come from the AI model built into your browser, so nothing leaves your machine. Your chat is saved in this browser until you start a new one.</div>
         <div id="empty-mode"></div>
+        <div class="starters" id="starters"></div>
+        <div class="tip">Paste any text, then use Summarize, Proofread, or Translate under it.</div>
       </div>
     </main>
 
@@ -500,6 +537,10 @@
       <select id="language"></select>
       <p class="field-hint">The languages the built-in model supports.</p>
 
+      <label for="units">Units</label>
+      <select id="units"></select>
+      <p class="field-hint">Auto follows your region<span id="units-auto"></span>.</p>
+
       <h3 class="section">Tools</h3>
       <label class="toggle"><input id="tools-enabled" type="checkbox"> Let the model use tools</label>
       <p class="field-hint">Before each reply, a quick separate step picks a tool if one helps. It doesn't use chat memory. Tools are skipped when the prompt is set to JSON replies.</p>
@@ -533,6 +574,7 @@
       chrome: {
         name: 'Chrome',
         Name: 'Chrome',
+        api: 'Chrome',
         model: 'Gemini Nano',
         Model: 'Gemini Nano',
         fact: 'you are Gemini Nano, the AI model built into Google Chrome',
@@ -542,6 +584,7 @@
       edge: {
         name: 'Edge',
         Name: 'Edge',
+        api: 'Edge',
         model: 'Edge\'s built-in AI model',
         Model: 'Edge\'s built-in AI model',
         fact: 'you are a small on-device language model that Microsoft builds into the Edge browser',
@@ -551,6 +594,7 @@
       other: {
         name: 'your browser',
         Name: 'Your browser',
+        api: 'Built-in',
         model: 'the built-in AI model',
         Model: 'The built-in AI model',
         fact: 'you are a small AI model built into this web browser',
@@ -615,7 +659,22 @@
 
     // Locked: always goes first. Small models guess about themselves,
     // so this states the facts plainly.
-    function identityText() {
+    // US units for the US, Liberia, and Myanmar. Metric everywhere else.
+    function regionUnits() {
+      try {
+        const region = new Intl.Locale(navigator.language || 'en-US').maximize().region;
+        return ['US', 'LR', 'MM'].includes(region) ? 'us' : 'metric';
+      } catch {
+        return 'us';
+      }
+    }
+
+    function effectiveUnits(cfg = settings) {
+      const u = cfg && cfg.units;
+      return u === 'us' || u === 'metric' ? u : regionUnits();
+    }
+
+    function identityText(cfg = settings) {
       return [
         `Facts about you: ${ENV.fact}.`,
         'You run entirely on the user\'s own computer, inside their browser.',
@@ -624,6 +683,9 @@
         'Your knowledge comes from training and may be out of date.',
         'If you are not sure of a fact, say so instead of guessing.',
         'Each message starts with the current date, time, and time zone in brackets. Use it for anything about dates or times. Only mention the date or time when it is relevant.',
+        effectiveUnits(cfg) === 'us'
+          ? 'Use US units (°F, miles, pounds) unless the user asks for others.'
+          : 'Use metric units (°C, kilometers, kilograms) unless the user asks for others.',
       ].join(' ');
     }
 
@@ -663,6 +725,12 @@
     ];
 
     // The languages Chrome's built-in model supports.
+    const UNITS = [
+      ['auto', 'Auto'],
+      ['us', 'US (°F, miles, pounds)'],
+      ['metric', 'Metric (°C, km, kg)'],
+    ];
+
     const LANGUAGES = [
       ['en', 'English'],
       ['es', 'Spanish'],
@@ -684,7 +752,7 @@
       off: t && Array.isArray(t.off) ? t.off.filter((x) => typeof x === 'string') : [],
       sites: t && Array.isArray(t.sites) ? t.sites.filter((x) => typeof x === 'string') : [],
     });
-    const defaultSettings = () => ({ active: 'default', presets: [defaultPreset()], sampling: 'auto', language: 'en', tools: cleanTools() });
+    const defaultSettings = () => ({ active: 'default', presets: [defaultPreset()], sampling: 'auto', language: 'en', units: 'auto', tools: cleanTools() });
     let settings = loadSettings();
     let activeSampling = null; // the creativity level the browser actually accepted
     let languageApplied = true; // whether the browser accepted the language hint
@@ -717,7 +785,9 @@
           presets,
           sampling: SAMPLING_MODES.some(([v]) => v === s.sampling) ? s.sampling : 'auto',
           language: LANGUAGES.some(([v]) => v === s.language) ? s.language : 'en',
+          units: UNITS.some(([v]) => v === s.units) ? s.units : 'auto',
           tools: cleanTools(s.tools),
+          ...(typeof s.translateTo === 'string' ? { translateTo: s.translateTo } : {}),
         };
       } catch {
         return defaultSettings();
@@ -742,7 +812,7 @@
     }
 
     function composeSystemPrompt(cfg) {
-      const parts = [identityText(), presetIn(cfg, cfg.active).prompt.trim()];
+      const parts = [identityText(cfg), presetIn(cfg, cfg.active).prompt.trim()];
       if (cfg.language && cfg.language !== 'en') parts.push(`Always reply in ${labelOf(LANGUAGES, cfg.language)}.`);
       return parts.filter(Boolean).join('\n\n');
     }
@@ -770,6 +840,7 @@
             const out = { role: m.role, content: m.content };
             if (typeof m.view === 'string') out.view = m.view;
             if (m.tool && typeof m.tool === 'object' && typeof m.tool.name === 'string') out.tool = m.tool;
+            if (typeof m.badge === 'string') { out.badge = m.badge; out.noContext = true; }
             return out;
           });
       } catch {
@@ -789,7 +860,7 @@
     // Recent turns for the model, starting on a user message.
     function recentTurns(limit) {
       if (limit <= 0) return []; // slice(-0) would return everything
-      const recent = history.slice(-limit);
+      const recent = history.filter((m) => !m.noContext).slice(-limit);
       while (recent.length && recent[0].role !== 'user') recent.shift();
       return recent;
     }
@@ -981,6 +1052,7 @@
     // ---------- Sending ----------
 
     function setBusy(isBusy) {
+      chat.querySelectorAll('.act-edit, .act-regen').forEach((b) => { b.disabled = isBusy; });
       sendBtn.textContent = isBusy ? 'Stop' : 'Send';
       sendBtn.classList.toggle('stop', isBusy);
     }
@@ -1002,7 +1074,8 @@
 
       // Sending ends any Undo window, so Undo can't wipe this new message.
       hideToast();
-      addMessage('user', text);
+      const userEl = addMessage('user', text);
+      let actionsAdded = false;
       promptEl.value = '';
       autosize();
 
@@ -1034,6 +1107,11 @@
           }
           history.push({ role: 'user', content: text }, answer);
           saveHistory();
+          const n = history.length;
+          addActions(userEl, history[n - 2], n - 2);
+          addActions(bubble, history[n - 1], n - 1);
+          actionsAdded = true;
+          updateLastActions();
         }
         showContextUsage();
       } catch (err) {
@@ -1051,6 +1129,7 @@
           if (!session) setStatus('The model failed to load. Send again to retry.', true);
         }
       } finally {
+        if (!actionsAdded) { addActions(userEl, { role: 'user', content: text }, null); updateLastActions(); }
         controller = null;
         setBusy(false);
         scrollToBottom();
@@ -1069,7 +1148,7 @@
       saveHistory();
       const wasLoaded = !!session;
       if (session) { session.destroy(); session = null; }
-      chat.querySelectorAll('.msg, .tool-use, .tool-ask').forEach((m) => m.remove());
+      chat.querySelectorAll('.msg, .tool-use, .tool-ask, .msg-actions').forEach((m) => m.remove());
       empty.hidden = !!onboardCard;
       promptEl.focus();
       if (wasLoaded) {
@@ -1083,7 +1162,7 @@
     function undoNewChat(saved) {
       history = saved;
       saveHistory();
-      chat.querySelectorAll('.msg, .tool-use, .tool-ask').forEach((m) => m.remove());
+      chat.querySelectorAll('.msg, .tool-use, .tool-ask, .msg-actions').forEach((m) => m.remove());
       restoreHistory();
       setStatus('Chat restored.');
       // Reload the model with the restored chat so it remembers it.
@@ -1189,7 +1268,20 @@
       return tool ? { tool, args: route.args && typeof route.args === 'object' ? route.args : {} } : null;
     }
 
+    // The browser asks the person before sharing their location.
+    function locate() {
+      return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) { reject(new Error('Location is not available in this browser.')); return; }
+        navigator.geolocation.getCurrentPosition(
+          (p) => resolve({ latitude: Number(p.coords.latitude.toFixed(3)), longitude: Number(p.coords.longitude.toFixed(3)) }),
+          (e) => reject(new Error(e.code === 1 ? 'Location permission was denied.' : 'Could not get your location.')),
+          { timeout: 15000, maximumAge: 600000 },
+        );
+      });
+    }
+
     function argPreview(args) {
+      if (Tools && args.place !== undefined && Tools.isHere(args.place)) return 'your location';
       const v = args.query ?? args.place ?? args.text ?? JSON.stringify(args);
       const s = String(v);
       return s.length > 120 ? `${s.slice(0, 120)}...` : s;
@@ -1259,12 +1351,20 @@
     // Route, ask if needed, run. Returns null when no tool is used.
     async function useTools(text, bubble, signal) {
       await toolsReady;
-      const tools = enabledTools();
+      // Offline: leave out the web tools instead of failing.
+      const online = navigator.onLine !== false;
+      const tools = enabledTools().filter((t) => online || !t.network);
       if (!Tools || !settings.tools.enabled || !tools.length) return null;
+      // Show the picker the previous message, so follow-ups like
+      // "and in Celsius?" can fill in what's missing.
+      const prev = [...history].reverse().find((m) => m.role === 'user');
+      const routeText = prev
+        ? `Earlier message, for context only: "${prev.content.length > 300 ? `${prev.content.slice(0, 300)}...` : prev.content}"\nNew message: ${text}`
+        : text;
       bubble.textContent = 'Checking tools...';
       let picked = null;
       try {
-        picked = await routeMessage(text, tools, signal);
+        picked = await routeMessage(routeText, tools, signal);
       } catch (err) {
         if (err.name === 'AbortError') throw err;
         console.warn('[nano] tool routing failed, answering without tools:', err);
@@ -1283,17 +1383,333 @@
         }
         if (choice === 'deny') {
           Object.assign(info, { ok: false, declined: true, host: tool.network });
-          info.line = Tools.describeCall(tool.name, args, info);
+          info.line = Tools.describeCall(tool.name, args, info, { units: effectiveUnits() });
           return info;
         }
       }
       bubble.textContent = `Using ${tool.label}...`;
-      const out = await Tools.runTool(tool.name, args, { signal });
+      const out = await Tools.runTool(tool.name, args, { signal, locate });
       if (signal.aborted) throw new DOMException('Stopped', 'AbortError');
       Object.assign(info, out);
-      info.line = Tools.describeCall(tool.name, args, out);
+      info.line = Tools.describeCall(tool.name, args, out, { units: effectiveUnits() });
       return info;
     }
+
+    // ---------- Message actions ----------
+    // Copy on everything. Edit on your last message and Regenerate on the
+    // last reply. Summarize, Proofread, and Translate on text, using
+    // Chrome's dedicated models when present and the chat model otherwise.
+
+    let taskBusy = false;
+
+    async function copyText(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast('Copied.', null, 2000);
+      } catch {
+        showToast('Copy failed. Select the text and copy it instead.', null, 4000);
+      }
+    }
+
+    function actionButton(label, cls, onClick) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = cls;
+      b.textContent = label;
+      b.addEventListener('click', onClick);
+      return b;
+    }
+
+    // Adds the actions row under a message. hidx is its index in history,
+    // or null for a message that wasn't saved (like a failed send).
+    function addActions(el, entry, hidx) {
+      const role = entry.role === 'user' ? 'user' : 'ai';
+      const row = document.createElement('div');
+      row.className = `msg-actions ${role}`;
+      if (hidx !== null && hidx !== undefined) row.dataset.hidx = String(hidx);
+      const text = entry.content;
+      row.appendChild(actionButton('Copy', 'act-copy', () => copyText(text)));
+      if (entry.view !== 'json') {
+        const isTranslation = /^Translation/.test(entry.badge || '');
+        if ((role === 'user' && text.length >= 200) || (role === 'ai' && !entry.badge && text.length >= 600)) {
+          row.appendChild(actionButton('Summarize', 'act-task', () => runTask('summarize', text)));
+        }
+        if (role === 'user') row.appendChild(actionButton('Proofread', 'act-task', () => runTask('proofread', text)));
+        if (!isTranslation) row.appendChild(actionButton('Translate', 'act-task', (e) => openTranslatePicker(row, text, e.currentTarget)));
+      }
+      if (role === 'user') {
+        const b = actionButton('Edit', 'act-edit', editLast);
+        b.hidden = true;
+        row.appendChild(b);
+      } else if (!entry.badge) {
+        const b = actionButton('Regenerate', 'act-regen', regenerate);
+        b.hidden = true;
+        row.appendChild(b);
+      }
+      if (taskBusy) row.querySelectorAll('.act-task').forEach((x) => { x.disabled = true; });
+      el.after(row);
+      return row;
+    }
+
+    // Is the end of history a normal question and answer?
+    function lastExchange() {
+      const n = history.length;
+      const u = history[n - 2];
+      const a = history[n - 1];
+      return u && a && u.role === 'user' && a.role === 'assistant' && !a.noContext ? n - 2 : -1;
+    }
+
+    function updateLastActions() {
+      chat.querySelectorAll('.msg-actions').forEach((r) => r.classList.remove('last'));
+      chat.querySelectorAll('.act-edit, .act-regen').forEach((b) => { b.hidden = true; });
+      const rows = chat.querySelectorAll('.msg-actions');
+      if (rows.length) rows[rows.length - 1].classList.add('last');
+      const i = lastExchange();
+      if (i < 0) return;
+      const userRow = chat.querySelector(`.msg-actions[data-hidx="${i}"]`);
+      const aiRow = chat.querySelector(`.msg-actions[data-hidx="${i + 1}"]`);
+      if (userRow) { userRow.classList.add('last'); const b = userRow.querySelector('.act-edit'); if (b) b.hidden = false; }
+      if (aiRow) { aiRow.classList.add('last'); const b = aiRow.querySelector('.act-regen'); if (b) b.hidden = false; }
+    }
+
+    function rerenderChat() {
+      chat.querySelectorAll('.msg, .tool-use, .tool-ask, .msg-actions').forEach((m) => m.remove());
+      if (!history.length) empty.hidden = !!onboardCard;
+      restoreHistory();
+    }
+
+    // Take back the last question and answer, and reload the model without them.
+    function popLastExchange() {
+      const i = lastExchange();
+      if (i < 0 || controller) return null;
+      const [u] = history.splice(i, 2);
+      saveHistory();
+      rerenderChat();
+      reloadModel();
+      return u.content;
+    }
+
+    function regenerate() {
+      const text = popLastExchange();
+      if (text === null) return;
+      promptEl.value = text;
+      handleSend();
+    }
+
+    function editLast() {
+      const text = popLastExchange();
+      if (text === null) return;
+      promptEl.value = text;
+      autosize();
+      promptEl.focus();
+      promptEl.setSelectionRange(text.length, text.length);
+      showToast('Edit your message, then send it.', null, 3000);
+    }
+
+    // ---------- Summarize, Proofread, Translate ----------
+
+    const TRANSLATE_LANGS = ['ar', 'bg', 'bn', 'cs', 'da', 'de', 'el', 'en', 'es', 'fi', 'fr', 'he', 'hi', 'hr', 'hu', 'id', 'it', 'ja', 'kn', 'ko', 'lt', 'mr', 'nl', 'no', 'pl', 'pt', 'ro', 'ru', 'sk', 'sl', 'sv', 'ta', 'te', 'th', 'tr', 'uk', 'vi', 'zh', 'zh-Hant'];
+    const NANO_LANGS = ['en', 'es', 'ja', 'de', 'fr'];
+    let langNames = null;
+    try { langNames = new Intl.DisplayNames(['en'], { type: 'language' }); } catch { /* old browser */ }
+    const langName = (code) => { try { return (langNames && langNames.of(code)) || code; } catch { return code; } };
+
+    function defaultTarget() {
+      if (settings.translateTo && TRANSLATE_LANGS.includes(settings.translateTo)) return settings.translateTo;
+      const mine = (navigator.language || 'en').split('-')[0];
+      return mine !== 'en' && TRANSLATE_LANGS.includes(mine) ? mine : 'es';
+    }
+
+    function openTranslatePicker(row, text, button) {
+      const open = row.querySelector('.translate-picker');
+      if (open) { open.remove(); button.focus(); return; }
+      const box = document.createElement('span');
+      box.className = 'translate-picker';
+      const sel = document.createElement('select');
+      sel.setAttribute('aria-label', 'Translate to');
+      TRANSLATE_LANGS
+        .map((c) => [c, langName(c)])
+        .sort((a, b) => a[1].localeCompare(b[1]))
+        .forEach(([c, name]) => {
+          const o = document.createElement('option');
+          o.value = c;
+          o.textContent = name;
+          sel.appendChild(o);
+        });
+      sel.value = defaultTarget();
+      const go = actionButton('Translate', 'act-task', () => {
+        settings.translateTo = sel.value;
+        saveSettings();
+        box.remove();
+        runTask('translate', text, { target: sel.value });
+      });
+      const cancel = actionButton('Cancel', '', () => { box.remove(); button.focus(); });
+      box.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); box.remove(); button.focus(); } });
+      box.append(sel, go, cancel);
+      button.after(box);
+      sel.focus();
+    }
+
+    // True unless the API says it can't run here. Some Chromium builds ship
+    // the API with no model behind it.
+    async function apiUsable(api, opts) {
+      try {
+        if (typeof api.availability !== 'function') return true;
+        return (await api.availability(opts)) !== 'unavailable';
+      } catch {
+        return false;
+      }
+    }
+
+    const progressMonitor = (onStatus, what) => (m) => {
+      m.addEventListener('downloadprogress', (e) => onStatus(`Downloading ${what}: ${Math.round(e.loaded * 100)}%`));
+    };
+
+    // A one-off session with the chat model, for fallbacks.
+    async function askTaskModel(system, text) {
+      const base = { initialPrompts: [{ role: 'system', content: system }] };
+      let s;
+      try {
+        s = await LanguageModel.create({ ...base, samplingMode: 'most-predictable' });
+      } catch (err) {
+        if (err.name === 'QuotaExceededError') throw err;
+        s = await LanguageModel.create(base);
+      }
+      try {
+        return await s.prompt(text);
+      } finally {
+        if (typeof s.destroy === 'function') s.destroy();
+      }
+    }
+
+    async function summarizeText(text, onStatus) {
+      if ('Summarizer' in self && await apiUsable(Summarizer, { type: 'key-points', format: 'markdown', length: 'medium' })) {
+        try {
+          const s = await Summarizer.create({ type: 'key-points', format: 'markdown', length: 'medium', monitor: progressMonitor(onStatus, `${ENV.name}'s summarizer`) });
+          onStatus('Summarizing...');
+          const out = await s.summarize(text);
+          if (typeof s.destroy === 'function') s.destroy();
+          return { text: out, via: `${ENV.api} Summarizer` };
+        } catch (err) {
+          console.warn('[nano] Summarizer failed, using the chat model:', err);
+        }
+      }
+      onStatus('Summarizing...');
+      const out = await askTaskModel('Summarize the text the user sends as 3 to 5 short bullet points. Reply with only the bullet points.', text);
+      return { text: out, via: ENV.model };
+    }
+
+    async function proofreadText(text, onStatus) {
+      if ('Proofreader' in self && await apiUsable(Proofreader, { expectedInputLanguages: ['en'] })) {
+        try {
+          const p = await Proofreader.create({ expectedInputLanguages: ['en'], monitor: progressMonitor(onStatus, `${ENV.name}'s proofreader`) });
+          onStatus('Proofreading...');
+          const r = await p.proofread(text);
+          if (typeof p.destroy === 'function') p.destroy();
+          const n = Array.isArray(r.corrections) ? r.corrections.length : null;
+          return { text: r.correctedInput, via: `${ENV.api} Proofreader`, count: n };
+        } catch (err) {
+          console.warn('[nano] Proofreader failed, using the chat model:', err);
+        }
+      }
+      onStatus('Proofreading...');
+      const out = await askTaskModel('Fix spelling, grammar, and punctuation in the text the user sends. Keep the meaning, tone, and formatting. Reply with only the corrected text, with no notes.', text);
+      return { text: out.trim(), via: ENV.model };
+    }
+
+    async function translateText(text, target, onStatus) {
+      let source = null;
+      if ('LanguageDetector' in self) {
+        try {
+          onStatus('Detecting the language...');
+          const d = await LanguageDetector.create({ monitor: progressMonitor(onStatus, 'the language detector') });
+          const [top] = await d.detect(text);
+          if (top && top.detectedLanguage && top.detectedLanguage !== 'und') source = top.detectedLanguage;
+          if (typeof d.destroy === 'function') d.destroy();
+        } catch (err) {
+          console.warn('[nano] Language detection failed:', err);
+        }
+      }
+      if (source && source.split('-')[0] === target.split('-')[0]) {
+        return { text, via: 'no change', note: `It's already in ${langName(target)}.` };
+      }
+      if ('Translator' in self && await apiUsable(Translator, { sourceLanguage: source || 'en', targetLanguage: target })) {
+        try {
+          const t = await Translator.create({ sourceLanguage: source || 'en', targetLanguage: target, monitor: progressMonitor(onStatus, `the ${langName(target)} translator`) });
+          onStatus('Translating...');
+          const out = await t.translate(text);
+          if (typeof t.destroy === 'function') t.destroy();
+          return { text: out, via: `${ENV.api} Translator` };
+        } catch (err) {
+          console.warn('[nano] Translator failed, trying the chat model:', err);
+        }
+      }
+      if (!NANO_LANGS.includes(target)) throw new Error(`${ENV.Name} can't translate to ${langName(target)} here.`);
+      onStatus('Translating...');
+      const out = await askTaskModel(`Translate the text the user sends into ${langName(target)}. Reply with only the translation.`, text);
+      return { text: out.trim(), via: ENV.model };
+    }
+
+    function renderBadged(el, entry) {
+      renderMarkdown(el, entry.content);
+      const b = document.createElement('div');
+      b.className = 'badge';
+      b.textContent = entry.badge;
+      el.prepend(b);
+    }
+
+    // Runs a text task and adds the result as a labeled reply. Results are
+    // saved, but kept out of the chat model's memory.
+    async function runTask(kind, text, opts = {}) {
+      if (taskBusy) return;
+      taskBusy = true;
+      chat.querySelectorAll('.act-task').forEach((b) => { b.disabled = true; });
+      empty.hidden = true;
+      const titles = { summarize: 'Summary', proofread: 'Proofread', translate: `Translation to ${langName(opts.target || '')}` };
+      const el = addMessage('ai pending', 'Working...');
+      const onStatus = (msg) => { el.textContent = msg; };
+      try {
+        if (!('LanguageModel' in self) && !('Summarizer' in self) && !('Translator' in self)) {
+          throw new Error('Built-in AI is not available in this browser.');
+        }
+        const res = kind === 'summarize' ? await summarizeText(text, onStatus)
+          : kind === 'proofread' ? await proofreadText(text, onStatus)
+          : await translateText(text, opts.target, onStatus);
+        let content = res.text;
+        if (res.note) content = res.note;
+        else if (kind === 'proofread' && content.trim() === text.trim()) content = 'No changes needed.';
+        const extra = kind === 'proofread' && res.count ? `, ${res.count} fix${res.count === 1 ? '' : 'es'}` : '';
+        const entry = { role: 'assistant', content, badge: `${titles[kind]} (${res.via}${extra})`, noContext: true };
+        el.classList.remove('pending');
+        renderBadged(el, entry);
+        history.push(entry);
+        saveHistory();
+        addActions(el, entry, history.length - 1);
+        updateLastActions();
+      } catch (err) {
+        console.error('[nano]', err);
+        el.classList.remove('pending');
+        el.classList.add('error');
+        el.textContent = err.name === 'QuotaExceededError'
+          ? `${titles[kind]} failed: the text is too long for the model.`
+          : `${titles[kind]} failed: ${err.message}`;
+      } finally {
+        taskBusy = false;
+        chat.querySelectorAll('.act-task').forEach((b) => { b.disabled = false; });
+        scrollToBottom();
+      }
+    }
+
+    // ---------- Starter prompts ----------
+
+    const STARTERS = ['What\'s 18% of 2,450?', 'Weather near me', 'How long until midnight?', 'Who was Ada Lovelace?'];
+    (() => {
+      const box = document.getElementById('starters');
+      STARTERS.forEach((s) => box.appendChild(actionButton(s, '', () => {
+        promptEl.value = s;
+        handleSend();
+      })));
+    })();
 
     // ---------- Asking and rendering ----------
 
@@ -1362,6 +1778,8 @@
     const samplingSel = $('sampling');
     const samplingNow = $('sampling-now');
     const languageSel = $('language');
+    const unitsSel = $('units');
+    const unitsAuto = $('units-auto');
     const meter = $('prompt-meter');
     const meterBar = meter.querySelector('.bar span');
     const meterText = meter.querySelector('.meter-text');
@@ -1421,10 +1839,12 @@
 
     function openSettings() {
       draft = JSON.parse(JSON.stringify(settings));
-      identityEl.textContent = identityText();
+      identityEl.textContent = identityText(draft);
       fillPresetSelect();
       fillSelect(samplingSel, SAMPLING_MODES, draft.sampling);
       fillSelect(languageSel, LANGUAGES, draft.language);
+      fillSelect(unitsSel, UNITS, draft.units || 'auto');
+      unitsAuto.textContent = `, which means ${regionUnits() === 'us' ? 'US units' : 'metric'} here`;
       samplingNow.textContent = session
         ? `${ENV.Name} is using: ${activeSampling ? labelOf(SAMPLING_MODES, activeSampling) : 'its default'}.`
         : '';
@@ -1455,8 +1875,9 @@
       }
       draft.sampling = samplingSel.value;
       draft.language = languageSel.value;
+      draft.units = unitsSel.value;
       // Format and schema apply per message. The rest needs a model reload.
-      const sig = (c) => JSON.stringify([composeSystemPrompt(c), c.sampling, c.language]);
+      const sig = (c) => JSON.stringify([composeSystemPrompt(c), c.sampling, c.language, c.units]);
       const needsReload = sig(draft) !== sig(settings);
       settings = draft;
       saveSettings();
@@ -1576,7 +1997,7 @@
     async function updateMeter() {
       if (!draft) return;
       const p = draftPreset();
-      const cfg = { ...draft, language: languageSel.value || draft.language };
+      const cfg = { ...draft, language: languageSel.value || draft.language, units: unitsSel.value || draft.units };
       const text = composeSystemPrompt(cfg) + (p.format === 'json' ? `\n${p.schema}` : '');
       let tokens = Math.round(text.length / 4);
       let exact = false;
@@ -1659,6 +2080,10 @@
     });
 
     languageSel.addEventListener('change', updateMeterSoon);
+    unitsSel.addEventListener('change', () => {
+      if (draft) identityEl.textContent = identityText({ ...draft, units: unitsSel.value });
+      updateMeterSoon();
+    });
 
     // Escape closes. Tab stays inside the drawer while it's open.
     drawer.addEventListener('keydown', (e) => {
@@ -1975,11 +2400,15 @@
     // Show the saved chat. Waits for DOMContentLoaded, because the Markdown
     // libraries load with defer and run after this script.
     function restoreHistory() {
-      history.forEach((m) => {
-        if (m.role === 'user') { addMessage('user', m.content); return; }
+      history.forEach((m, i) => {
+        if (m.role === 'user') { addActions(addMessage('user', m.content), m, i); return; }
         if (m.tool) addToolChip(m.tool);
-        renderReply(addMessage('ai'), m.content, m.view);
+        const el = addMessage('ai');
+        if (m.badge) renderBadged(el, m);
+        else renderReply(el, m.content, m.view);
+        addActions(el, m, i);
       });
+      updateLastActions();
     }
     updateModeUI();
     if (document.readyState === 'loading') {
