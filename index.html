@@ -616,7 +616,6 @@
     // Locked: always goes first. Small models guess about themselves,
     // so this states the facts plainly.
     function identityText() {
-      const date = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
       return [
         `Facts about you: ${ENV.fact}.`,
         'You run entirely on the user\'s own computer, inside their browser.',
@@ -624,7 +623,7 @@
         'You have no internet access, so you cannot look things up or see live information.',
         'Your knowledge comes from training and may be out of date.',
         'If you are not sure of a fact, say so instead of guessing.',
-        `Today's date is ${date}.`,
+        'Each message starts with the current date, time, and time zone in brackets. Use it for anything about dates or times. Only mention the date or time when it is relevant.',
       ].join(' ');
     }
 
@@ -1018,7 +1017,7 @@
         const toolInfo = preset.format === 'json' ? null : await useTools(text, bubble, controller.signal);
         if (toolInfo) addToolChip(toolInfo, bubble);
         bubble.textContent = 'Thinking...';
-        const reply = await askModel(s, toolInfo ? withToolResult(text, toolInfo) : text, preset, controller.signal);
+        const reply = await askModel(s, stamped(toolInfo ? withToolResult(text, toolInfo) : text), preset, controller.signal);
         bubble.classList.remove('pending');
         const view = preset.format === 'json' ? 'json' : undefined;
         if (reply) renderReply(bubble, reply, view);
@@ -1106,6 +1105,20 @@
       return true;
     }
 
+    // ---------- Date and time ----------
+    // Stamped onto every message, so the model always has the real local
+    // date, time, and time zone, even if the tab stays open for days.
+
+    function nowStamp(d = new Date()) {
+      const date = d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'long' });
+      let zone = '';
+      try { zone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { /* unknown */ }
+      return `[${date}, ${time}${zone ? `, ${zone}` : ''}]`;
+    }
+
+    const stamped = (text) => `${nowStamp()}\n${text}`;
+
     // ---------- Tools ----------
     // A separate, short-lived session picks a tool for each message (JSON
     // mode), so tool picking never uses the chat's memory. The page runs the
@@ -1124,7 +1137,7 @@
       (Tools ? Tools.TOOLS.filter((t) => !cfg.tools.off.includes(t.name)) : []);
 
     async function getRouter(tools) {
-      const key = tools.map((t) => t.name).join(',');
+      const key = `${tools.map((t) => t.name).join(',')}|${new Date().toDateString()}`; // rebuild on a new day
       if (routerBase && routerKey === key) return routerBase;
       if (routerBase && typeof routerBase.destroy === 'function') routerBase.destroy();
       routerBase = null;
@@ -1160,11 +1173,11 @@
       let raw;
       try {
         try {
-          raw = await s.prompt(text, { signal, responseConstraint: Tools.routeSchema(tools) });
+          raw = await s.prompt(stamped(text), { signal, responseConstraint: Tools.routeSchema(tools) });
         } catch (err) {
           if (err.name === 'AbortError' || err.name === 'QuotaExceededError') throw err;
           console.warn('[nano] routing schema not accepted, asking without it:', err);
-          raw = await s.prompt(`${text}\n\nReply with JSON only.`, { signal });
+          raw = await s.prompt(`${stamped(text)}\n\nReply with JSON only.`, { signal });
         }
       } finally {
         if (canClone) { if (typeof s.destroy === 'function') s.destroy(); }
