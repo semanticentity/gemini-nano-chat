@@ -179,16 +179,43 @@
     .msg-actions button:hover { color: var(--text); background: var(--code-bg); }
     .msg-actions button:disabled { opacity: 0.5; cursor: default; }
     .msg-actions [hidden] { display: none; }
-    .translate-picker { display: inline-flex; gap: 4px; align-items: center; }
-    .translate-picker select {
-      font: inherit;
-      font-size: 12.5px;
-      padding: 2px 6px;
-      border-radius: 6px;
-      border: 1px solid var(--border);
+    .lang-menu {
+      position: fixed;
+      z-index: 25;
       background: var(--panel);
       color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
     }
+    .lang-menu .lang-title { font-size: 12px; font-weight: 600; color: var(--muted); padding: 0 4px; }
+    .lang-menu input {
+      font: inherit;
+      font-size: 14px;
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--text);
+      outline: none;
+    }
+    .lang-menu input:focus { border-color: var(--accent); }
+    .lang-list { max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; }
+    .lang-list .lang-group { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 6px 6px 2px; }
+    .lang-list button {
+      text-align: left;
+      border: none;
+      background: none;
+      color: var(--text);
+      font-size: 14px;
+      padding: 6px 8px;
+      border-radius: 6px;
+    }
+    .lang-list button:hover, .lang-list button:focus { background: var(--code-bg); outline: none; }
     .msg .badge { font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
     .msg.note {
       align-self: center;
@@ -682,7 +709,7 @@
         'You have no internet access, so you cannot look things up or see live information.',
         'Your knowledge comes from training and may be out of date.',
         'If you are not sure of a fact, say so instead of guessing.',
-        'Each message starts with the current date, time, and time zone in brackets. Use it for anything about dates or times. Only mention the date or time when it is relevant.',
+        'Each message ends with a note giving the current local date and time. It is background information. Use it only when a question involves dates or times, and never repeat or quote the note.',
         effectiveUnits(cfg) === 'us'
           ? 'Use US units (°F, miles, pounds) unless the user asks for others.'
           : 'Use metric units (°C, kilometers, kilograms) unless the user asks for others.',
@@ -787,7 +814,8 @@
           language: LANGUAGES.some(([v]) => v === s.language) ? s.language : 'en',
           units: UNITS.some(([v]) => v === s.units) ? s.units : 'auto',
           tools: cleanTools(s.tools),
-          ...(typeof s.translateTo === 'string' ? { translateTo: s.translateTo } : {}),
+          ...(Array.isArray(s.recentLangs) ? { recentLangs: s.recentLangs.filter((c) => typeof c === 'string').slice(0, 3) }
+            : typeof s.translateTo === 'string' ? { recentLangs: [s.translateTo] } : {}),
         };
       } catch {
         return defaultSettings();
@@ -979,7 +1007,7 @@
         const base = {
           initialPrompts: [
             { role: 'system', content: composeSystemPrompt(settings) },
-            ...turns.map(({ role, content }) => ({ role, content })),
+            ...turns.map(({ role, content }) => ({ role, content: role === 'assistant' ? stripEcho(content) : content })),
           ],
           monitor,
         };
@@ -1090,9 +1118,10 @@
         const toolInfo = preset.format === 'json' ? null : await useTools(text, bubble, controller.signal);
         if (toolInfo) addToolChip(toolInfo, bubble);
         bubble.textContent = 'Thinking...';
-        const reply = await askModel(s, stamped(toolInfo ? withToolResult(text, toolInfo) : text), preset, controller.signal);
+        let reply = await askModel(s, stamped(toolInfo ? withToolResult(text, toolInfo) : text), preset, controller.signal);
         bubble.classList.remove('pending');
         const view = preset.format === 'json' ? 'json' : undefined;
+        if (reply && !view) reply = stripEcho(reply);
         if (reply) renderReply(bubble, reply, view);
         else renderMarkdown(bubble, '_(no response)_');
         if (reply) {
@@ -1188,15 +1217,30 @@
     // Stamped onto every message, so the model always has the real local
     // date, time, and time zone, even if the tab stays open for days.
 
+    // Short form, like "Sat, Oct 17, 2026, 10:21 AM CDT (America/Chicago)".
     function nowStamp(d = new Date()) {
-      const date = d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-      const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'long' });
+      const date = d.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+      const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
       let zone = '';
       try { zone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { /* unknown */ }
-      return `[${date}, ${time}${zone ? `, ${zone}` : ''}]`;
+      return `${date}, ${time}${zone ? ` (${zone})` : ''}`;
     }
 
-    const stamped = (text) => `${nowStamp()}\n${text}`;
+    // The note goes at the end: small models echo whatever comes first.
+    const stamped = (text) => `${text}\n\n(Background note, do not repeat: it is now ${nowStamp()}.)`;
+
+    // Removes an echoed time note or old-style "[Saturday, October 17, ...]"
+    // line from a reply, wherever the model put it.
+    const ECHO_PATTERNS = [
+      /^\s*\[(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day, [A-Z][a-z]+ \d{1,2}, \d{4}, \d{1,2}:\d{2}\s?[AP]M[^\]\n]*\]\s*$/gm,
+      /^\s*\(?Background note[^\n]*\)?\s*$/gim,
+      /^\s*\(?it is now (?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^\n]*\)?\s*$/gim,
+    ];
+    function stripEcho(text) {
+      let out = String(text);
+      ECHO_PATTERNS.forEach((re) => { out = out.replace(re, ''); });
+      return out.replace(/\n{3,}/g, '\n\n').trim();
+    }
 
     // ---------- Tools ----------
     // A separate, short-lived session picks a tool for each message (JSON
@@ -1429,13 +1473,19 @@
       if (hidx !== null && hidx !== undefined) row.dataset.hidx = String(hidx);
       const text = entry.content;
       row.appendChild(actionButton('Copy', 'act-copy', () => copyText(text)));
-      if (entry.view !== 'json') {
-        const isTranslation = /^Translation/.test(entry.badge || '');
-        if ((role === 'user' && text.length >= 200) || (role === 'ai' && !entry.badge && text.length >= 600)) {
+      // Text tools only where they make sense: pasted text (long messages
+      // from you) and normal replies. Short questions just get Copy and Edit.
+      if (entry.view !== 'json' && !entry.badge) {
+        const pasted = role === 'user' && text.length >= 200;
+        if (pasted || (role === 'ai' && text.length >= 600)) {
           row.appendChild(actionButton('Summarize', 'act-task', () => runTask('summarize', text)));
         }
-        if (role === 'user') row.appendChild(actionButton('Proofread', 'act-task', () => runTask('proofread', text)));
-        if (!isTranslation) row.appendChild(actionButton('Translate', 'act-task', (e) => openTranslatePicker(row, text, e.currentTarget)));
+        if (pasted) row.appendChild(actionButton('Proofread', 'act-task', () => runTask('proofread', text)));
+        if (pasted || role === 'ai') {
+          const tb = actionButton('Translate', 'act-task', () => openLangMenu(tb, (lang) => runTask('translate', text, { target: lang })));
+          tb.setAttribute('aria-haspopup', 'menu');
+          row.appendChild(tb);
+        }
       }
       if (role === 'user') {
         const b = actionButton('Edit', 'act-edit', editLast);
@@ -1514,41 +1564,122 @@
     try { langNames = new Intl.DisplayNames(['en'], { type: 'language' }); } catch { /* old browser */ }
     const langName = (code) => { try { return (langNames && langNames.of(code)) || code; } catch { return code; } };
 
-    function defaultTarget() {
-      if (settings.translateTo && TRANSLATE_LANGS.includes(settings.translateTo)) return settings.translateTo;
+    // Recent picks first, then the browser's own language, then the rest.
+    function recentLangs() {
+      const saved = Array.isArray(settings.recentLangs) ? settings.recentLangs : [];
       const mine = (navigator.language || 'en').split('-')[0];
-      return mine !== 'en' && TRANSLATE_LANGS.includes(mine) ? mine : 'es';
+      const list = [...saved];
+      if (mine !== 'en' && TRANSLATE_LANGS.includes(mine) && !list.includes(mine)) list.push(mine);
+      return list.filter((c) => TRANSLATE_LANGS.includes(c)).slice(0, 4);
     }
 
-    function openTranslatePicker(row, text, button) {
-      const open = row.querySelector('.translate-picker');
-      if (open) { open.remove(); button.focus(); return; }
-      const box = document.createElement('span');
-      box.className = 'translate-picker';
-      const sel = document.createElement('select');
-      sel.setAttribute('aria-label', 'Translate to');
-      TRANSLATE_LANGS
-        .map((c) => [c, langName(c)])
-        .sort((a, b) => a[1].localeCompare(b[1]))
-        .forEach(([c, name]) => {
-          const o = document.createElement('option');
-          o.value = c;
-          o.textContent = name;
-          sel.appendChild(o);
-        });
-      sel.value = defaultTarget();
-      const go = actionButton('Translate', 'act-task', () => {
-        settings.translateTo = sel.value;
-        saveSettings();
-        box.remove();
-        runTask('translate', text, { target: sel.value });
-      });
-      const cancel = actionButton('Cancel', '', () => { box.remove(); button.focus(); });
-      box.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); box.remove(); button.focus(); } });
-      box.append(sel, go, cancel);
-      button.after(box);
-      sel.focus();
+    function rememberLang(code) {
+      const list = (Array.isArray(settings.recentLangs) ? settings.recentLangs : []).filter((c) => c !== code);
+      settings.recentLangs = [code, ...list].slice(0, 3);
+      saveSettings();
     }
+
+    let openMenu = null;
+    function closeLangMenu(focusBack) {
+      if (!openMenu) return;
+      const { menu, button, onDoc } = openMenu;
+      document.removeEventListener('pointerdown', onDoc, true);
+      menu.remove();
+      button.setAttribute('aria-expanded', 'false');
+      openMenu = null;
+      if (focusBack) button.focus();
+    }
+
+    // A small popover: search box, recent languages, then all languages.
+    function openLangMenu(button, onPick) {
+      if (openMenu && openMenu.button === button) { closeLangMenu(true); return; }
+      closeLangMenu(false);
+      const menu = document.createElement('div');
+      menu.className = 'lang-menu';
+      menu.setAttribute('role', 'dialog');
+      menu.setAttribute('aria-label', 'Translate to');
+      const title = document.createElement('div');
+      title.className = 'lang-title';
+      title.textContent = 'Translate to';
+      const search = document.createElement('input');
+      search.type = 'search';
+      search.placeholder = 'Find a language';
+      search.setAttribute('aria-label', 'Find a language');
+      const list = document.createElement('div');
+      list.className = 'lang-list';
+      list.setAttribute('role', 'listbox');
+
+      const all = TRANSLATE_LANGS.map((c) => [c, langName(c)]).sort((a, b) => a[1].localeCompare(b[1]));
+      const recent = recentLangs();
+      const pick = (code) => { rememberLang(code); closeLangMenu(true); onPick(code); };
+
+      function render() {
+        const q = search.value.trim().toLowerCase();
+        list.textContent = '';
+        const groups = q
+          ? [[null, all.filter(([c, n]) => n.toLowerCase().includes(q) || c.toLowerCase() === q)]]
+          : [['Recent', all.filter(([c]) => recent.includes(c)).sort((a, b) => recent.indexOf(a[0]) - recent.indexOf(b[0]))],
+            ['All languages', all]];
+        groups.forEach(([label, items]) => {
+          if (!items.length) return;
+          if (label) {
+            const h = document.createElement('div');
+            h.className = 'lang-group';
+            h.textContent = label;
+            list.appendChild(h);
+          }
+          items.forEach(([c, n]) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.setAttribute('role', 'option');
+            b.textContent = n;
+            b.dataset.code = c;
+            b.addEventListener('click', () => pick(c));
+            list.appendChild(b);
+          });
+        });
+        if (!list.querySelector('button')) {
+          const none = document.createElement('div');
+          none.className = 'lang-group';
+          none.textContent = 'No match';
+          list.appendChild(none);
+        }
+      }
+      render();
+      search.addEventListener('input', render);
+
+      // Keyboard: Enter picks the first match, arrows move, Escape closes.
+      menu.addEventListener('keydown', (e) => {
+        const items = [...list.querySelectorAll('button')];
+        const i = items.indexOf(document.activeElement);
+        if (e.key === 'Escape') { e.preventDefault(); closeLangMenu(true); }
+        else if (e.key === 'Enter' && document.activeElement === search && items[0]) { e.preventDefault(); items[0].click(); }
+        else if (e.key === 'ArrowDown') { e.preventDefault(); (items[i + 1] || items[0])?.focus(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); if (i <= 0) search.focus(); else items[i - 1].focus(); }
+        else if (e.key === 'Tab') { e.preventDefault(); closeLangMenu(true); }
+      });
+
+      menu.append(title, search, list);
+      document.body.appendChild(menu);
+
+      // Place under the button, or above it when there's no room below.
+      const r = button.getBoundingClientRect();
+      const w = Math.min(260, window.innerWidth - 16);
+      const h = Math.min(320, menu.offsetHeight);
+      const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+      const below = r.bottom + 6 + h <= window.innerHeight - 8;
+      menu.style.width = `${w}px`;
+      menu.style.left = `${left}px`;
+      menu.style.top = `${below ? r.bottom + 6 : Math.max(8, r.top - 6 - h)}px`;
+
+      const onDoc = (e) => { if (!menu.contains(e.target) && e.target !== button) closeLangMenu(false); };
+      document.addEventListener('pointerdown', onDoc, true);
+      button.setAttribute('aria-expanded', 'true');
+      openMenu = { menu, button, onDoc };
+      search.focus();
+    }
+    window.addEventListener('resize', () => closeLangMenu(false));
+    document.getElementById('chat').addEventListener('scroll', () => closeLangMenu(false));
 
     // True unless the API says it can't run here. Some Chromium builds ship
     // the API with no model behind it.
@@ -1737,7 +1868,7 @@
           : `The reply was not valid JSON. Here it is as sent:\n\n\`\`\`\n${content}\n\`\`\``);
         return;
       }
-      renderMarkdown(el, content);
+      renderMarkdown(el, stripEcho(content)); // also cleans replies saved before this fix
     }
 
     // Tell the person once if Chrome refused a setting.
