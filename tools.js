@@ -465,7 +465,7 @@ export function catalogPrompt(tools = TOOLS, today = new Date()) {
     'You route the user\'s message to one tool, or to "none".',
     'Reply with JSON only: {"tool": "...", "args": {...}}',
     `Today is ${isoDay(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()))}.`,
-    'Messages may start with the current date and time in brackets. That is context, not part of the question.',
+    'Messages end with a background note giving the current date and time. That is context, not part of the question.',
     '',
     'Tools:',
     ...lines,
