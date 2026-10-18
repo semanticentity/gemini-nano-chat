@@ -116,6 +116,36 @@ The [tool test page](https://semanticentity.github.io/gemini-nano-chat/eval.html
 
 Use **Copy report** to share your own results.
 
+## Roadmap
+
+Files and images are read on your computer and never leave it. The constraint is Nano's 9,216 token window (about 5 or 6 pages), so each feature sends the model as little as possible.
+
+**Next: files**
+
+- Text files (.txt, .md, .csv, .json, code) read with `FileReader`. No library.
+- PDFs with pdf.js, Word files with mammoth.js. Both run in the page.
+- Files are split into chunks and kept out of the chat's memory. Per question, BM25 keyword search picks the top 2 or 3 chunks to send. Tested code, like the tools.
+- "Summarize this file" summarizes each chunk, then the summaries.
+- Token cost shown before sending, via `measureContextUsage()`.
+
+**Then: images and audio**
+
+- Prompt API image input (`expectedInputs: [{ type: 'image' }]`), feature detected with `availability()`. Images resized on a canvas first to save tokens.
+- Tesseract.js OCR as the fallback, for screenshots, receipts, and scanned PDFs.
+- Prompt API audio input for voice memos. Needs a GPU. Not the Web Speech API, which sends audio to Google's servers in Chrome.
+
+**Then: provable privacy**
+
+- A Content Security Policy that blocks every host except the tool APIs, so the browser enforces "nothing leaves your device."
+- Self-host marked and DOMPurify, so loading the page contacts no third party.
+- Service worker and manifest, so it installs as an app and opens offline.
+
+**Ideas**
+
+- Scrubber: hide emails, phone numbers, and card numbers with patterns, and names with Nano, before pasting text into a cloud AI.
+- Ask a folder of local notes, using the File System Access API.
+- Export a chat as Markdown, or as a passphrase-encrypted file.
+
 ## Run it locally
 
 ```
